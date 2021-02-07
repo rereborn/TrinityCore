@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -287,7 +287,7 @@ class spell_hun_exhilaration : public SpellScriptLoader
             void HandleOnHit()
             {
                 if (GetCaster()->HasAura(SPELL_HUNTER_EXHILARATION_R2) && !GetCaster()->HasAura(SPELL_HUNTER_LONE_WOLF))
-                    GetCaster()->CastSpell((Unit*)nullptr, SPELL_HUNTER_EXHILARATION_PET, true);
+                    GetCaster()->CastSpell(nullptr, SPELL_HUNTER_EXHILARATION_PET, true);
             }
 
             void Register() override
@@ -363,7 +363,7 @@ class spell_hun_improved_mend_pet : public SpellScriptLoader
             void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
             {
                 PreventDefaultAction();
-                GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_IMPROVED_MEND_PET, true, NULL, aurEff);
+                GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_IMPROVED_MEND_PET, true, nullptr, aurEff);
             }
 
             void Register() override
@@ -398,7 +398,7 @@ class spell_hun_last_stand_pet : public SpellScriptLoader
             {
                 Unit* caster = GetCaster();
                 int32 healthModSpellBasePoints0 = int32(caster->CountPctFromMaxHealth(30));
-                caster->CastCustomSpell(caster, SPELL_HUNTER_PET_LAST_STAND_TRIGGERED, &healthModSpellBasePoints0, NULL, NULL, true, NULL);
+                caster->CastCustomSpell(caster, SPELL_HUNTER_PET_LAST_STAND_TRIGGERED, &healthModSpellBasePoints0, nullptr, nullptr, true, nullptr);
             }
 
             void Register() override
@@ -435,15 +435,15 @@ class spell_hun_masters_call : public SpellScriptLoader
 
             SpellCastResult DoCheckCast()
             {
-                Pet* pet = GetCaster()->ToPlayer()->GetPet();
+                Guardian* pet = GetCaster()->ToPlayer()->GetGuardianPet();
                 ASSERT(pet); // checked in Spell::CheckCast
 
-                if (!pet->IsAlive())
-                    return SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
+                if (!pet->IsPet() || !pet->IsAlive())
+                    return SPELL_FAILED_NO_PET;
 
                 // Do a mini Spell::CheckCasterAuras on the pet, no other way of doing this
                 SpellCastResult result = SPELL_CAST_OK;
-                uint32 const unitflag = pet->GetUInt32Value(UNIT_FIELD_FLAGS);
+                uint32 const unitflag = pet->m_unitData->Flags;
                 if (!pet->GetCharmerGUID().IsEmpty())
                     result = SPELL_FAILED_CHARMED;
                 else if (unitflag & UNIT_FLAG_STUNNED)
@@ -473,7 +473,7 @@ class spell_hun_masters_call : public SpellScriptLoader
 
             void HandleScriptEffect(SpellEffIndex /*effIndex*/)
             {
-                GetHitUnit()->CastSpell((Unit*)nullptr, SPELL_HUNTER_MASTERS_CALL_TRIGGERED, true);
+                GetHitUnit()->CastSpell(nullptr, SPELL_HUNTER_MASTERS_CALL_TRIGGERED, true);
             }
 
             void Register() override
@@ -508,7 +508,10 @@ class spell_hun_misdirection : public SpellScriptLoader
 
             void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
             {
-                if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_DEFAULT || !GetTarget()->HasAura(SPELL_HUNTER_MISDIRECTION_PROC))
+                if (GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_DEFAULT || GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_INTERRUPT)
+                    return;
+
+                if (!GetTarget()->HasAura(SPELL_HUNTER_MISDIRECTION_PROC))
                     GetTarget()->ResetRedirectThreat();
             }
 
@@ -520,7 +523,7 @@ class spell_hun_misdirection : public SpellScriptLoader
             void HandleProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
             {
                 PreventDefaultAction();
-                GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_MISDIRECTION_PROC, true, NULL, aurEff);
+                GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_MISDIRECTION_PROC, true, nullptr, aurEff);
             }
 
             void Register() override
@@ -587,7 +590,7 @@ class spell_hun_multi_shot : public SpellScriptLoader
             void HandleOnHit()
             {
                 // We need to check hunter's spec because it doesn't generate focus on other specs than MM
-                if (GetCaster()->GetUInt32Value(PLAYER_FIELD_CURRENT_SPEC_ID) == TALENT_SPEC_HUNTER_MARKSMAN)
+                if (GetCaster()->ToPlayer()->GetPrimarySpecialization() == TALENT_SPEC_HUNTER_MARKSMAN)
                     GetCaster()->CastSpell(GetCaster(), SPELL_HUNTER_MULTI_SHOT_FOCUS, true);
             }
 
@@ -600,63 +603,6 @@ class spell_hun_multi_shot : public SpellScriptLoader
         SpellScript* GetSpellScript() const override
         {
             return new spell_hun_multi_shot_SpellScript();
-        }
-};
-
-// 54044 - Pet Carrion Feeder
-class spell_hun_pet_carrion_feeder : public SpellScriptLoader
-{
-    public:
-        spell_hun_pet_carrion_feeder() : SpellScriptLoader("spell_hun_pet_carrion_feeder") { }
-
-        class spell_hun_pet_carrion_feeder_SpellScript : public SpellScript
-        {
-            PrepareSpellScript(spell_hun_pet_carrion_feeder_SpellScript);
-
-            bool Load() override
-            {
-                if (!GetCaster()->IsPet())
-                    return false;
-                return true;
-            }
-
-            bool Validate(SpellInfo const* /*spellInfo*/) override
-            {
-                return ValidateSpellInfo({ SPELL_HUNTER_PET_CARRION_FEEDER_TRIGGERED });
-            }
-
-            SpellCastResult CheckIfCorpseNear()
-            {
-                Unit* caster = GetCaster();
-                float max_range = GetSpellInfo()->GetMaxRange(false);
-                WorldObject* result = NULL;
-                // search for nearby enemy corpse in range
-                Trinity::AnyDeadUnitSpellTargetInRangeCheck check(caster, max_range, GetSpellInfo(), TARGET_CHECK_ENEMY);
-                Trinity::WorldObjectSearcher<Trinity::AnyDeadUnitSpellTargetInRangeCheck> searcher(caster, result, check);
-                Cell::VisitWorldObjects(caster, searcher, max_range);
-                if (!result)
-                    Cell::VisitGridObjects(caster, searcher, max_range);
-                if (!result)
-                    return SPELL_FAILED_NO_EDIBLE_CORPSES;
-                return SPELL_CAST_OK;
-            }
-
-            void HandleDummy(SpellEffIndex /*effIndex*/)
-            {
-                Unit* caster = GetCaster();
-                caster->CastSpell(caster, SPELL_HUNTER_PET_CARRION_FEEDER_TRIGGERED, false);
-            }
-
-            void Register() override
-            {
-                OnEffectHit += SpellEffectFn(spell_hun_pet_carrion_feeder_SpellScript::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-                OnCheckCast += SpellCheckCastFn(spell_hun_pet_carrion_feeder_SpellScript::CheckIfCorpseNear);
-            }
-        };
-
-        SpellScript* GetSpellScript() const override
-        {
-            return new spell_hun_pet_carrion_feeder_SpellScript();
         }
 };
 
@@ -725,9 +671,9 @@ class spell_hun_readiness : public SpellScriptLoader
             void HandleDummy(SpellEffIndex /*effIndex*/)
             {
                 // immediately finishes the cooldown on your other Hunter abilities except Bestial Wrath
-                GetCaster()->GetSpellHistory()->ResetCooldowns([](SpellHistory::CooldownStorageType::iterator itr)
+                GetCaster()->GetSpellHistory()->ResetCooldowns([this](SpellHistory::CooldownStorageType::iterator itr)
                 {
-                    SpellInfo const* spellInfo = sSpellMgr->AssertSpellInfo(itr->first);
+                    SpellInfo const* spellInfo = sSpellMgr->AssertSpellInfo(itr->first, GetCastDifficulty());
 
                     ///! If spellId in cooldown map isn't valid, the above will return a null pointer.
                     if (spellInfo->SpellFamilyName == SPELLFAMILY_HUNTER &&
@@ -771,7 +717,7 @@ class spell_hun_ready_set_aim : public SpellScriptLoader
             {
                 if (GetStackAmount() == 5)
                 {
-                    GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_FIRE, true, NULL, aurEff);
+                    GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_FIRE, true, nullptr, aurEff);
                     GetTarget()->RemoveAura(GetId());
                 }
             }
@@ -895,7 +841,7 @@ class spell_hun_sniper_training : public SpellScriptLoader
                     Unit* target = GetTarget();
                     uint32 spellId = SPELL_HUNTER_SNIPER_TRAINING_BUFF_R1 + GetId() - SPELL_HUNTER_SNIPER_TRAINING_R1;
 
-                    target->CastSpell(target, spellId, true, 0, aurEff);
+                    target->CastSpell(target, spellId, true, nullptr, aurEff);
                     if (Player* playerTarget = GetUnitOwner()->ToPlayer())
                     {
                         int32 baseAmount = aurEff->GetBaseAmount();
@@ -1116,7 +1062,7 @@ class spell_hun_tnt : public SpellScriptLoader
             void HandleEffectProc(AuraEffect const* aurEff, ProcEventInfo& /*eventInfo*/)
             {
                 PreventDefaultAction();
-                GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_LOCK_AND_LOAD, true, NULL, aurEff);
+                GetTarget()->CastSpell(GetTarget(), SPELL_HUNTER_LOCK_AND_LOAD, true, nullptr, aurEff);
             }
 
             void Register() override
@@ -1147,7 +1093,6 @@ void AddSC_hunter_spell_scripts()
     new spell_hun_misdirection();
     new spell_hun_misdirection_proc();
     new spell_hun_multi_shot();
-    new spell_hun_pet_carrion_feeder();
     new spell_hun_pet_heart_of_the_phoenix();
     new spell_hun_readiness();
     new spell_hun_ready_set_aim();

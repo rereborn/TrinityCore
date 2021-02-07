@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,6 +18,7 @@
 #include "Scenario.h"
 #include "InstanceSaveMgr.h"
 #include "Log.h"
+#include "LootMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
@@ -54,16 +55,16 @@ void Scenario::Reset()
 
 void Scenario::CompleteStep(ScenarioStepEntry const* step)
 {
-    if (Quest const* quest = sObjectMgr->GetQuestTemplate(step->QuestRewardID))
+    if (Quest const* quest = sObjectMgr->GetQuestTemplate(step->RewardQuestID))
         for (ObjectGuid guid : _players)
             if (Player* player = ObjectAccessor::FindPlayer(guid))
-                player->RewardQuest(quest, 0, nullptr, false);
+                player->RewardQuest(quest, LootItemType::Item, 0, nullptr, false);
 
     if (step->IsBonusObjective())
         return;
 
     ScenarioStepEntry const* newStep = nullptr;
-    for (auto _step : _data->Steps)
+    for (auto const& _step : _data->Steps)
     {
         if (_step.second->IsBonusObjective())
             continue;
@@ -71,7 +72,7 @@ void Scenario::CompleteStep(ScenarioStepEntry const* step)
         if (GetStepState(_step.second) == SCENARIO_STEP_DONE)
             continue;
 
-        if (!newStep || _step.second->Step < newStep->Step)
+        if (!newStep || _step.second->OrderIndex < newStep->OrderIndex)
             newStep = _step.second;
     }
 
@@ -122,6 +123,11 @@ bool Scenario::IsComplete()
     }
 
     return true;
+}
+
+ScenarioEntry const* Scenario::GetEntry() const
+{
+    return _data->Entry;
 }
 
 ScenarioStepState Scenario::GetStepState(ScenarioStepEntry const* step)
@@ -246,7 +252,7 @@ ScenarioStepEntry const* Scenario::GetFirstStep() const
         if (scenarioStep.second->IsBonusObjective())
             continue;
 
-        if (!firstStep || scenarioStep.second->Step < firstStep->Step)
+        if (!firstStep || scenarioStep.second->OrderIndex < firstStep->OrderIndex)
             firstStep = scenarioStep.second;
     }
 
@@ -268,7 +274,7 @@ std::vector<WorldPackets::Scenario::BonusObjectiveData> Scenario::GetBonusObject
         if (!itr->second->IsBonusObjective())
             continue;
 
-        if (sCriteriaMgr->GetCriteriaTree(itr->second->CriteriaTreeID))
+        if (sCriteriaMgr->GetCriteriaTree(itr->second->Criteriatreeid))
         {
             WorldPackets::Scenario::BonusObjectiveData bonusObjectiveData;
             bonusObjectiveData.BonusObjectiveID = itr->second->ID;
@@ -300,14 +306,14 @@ std::vector<WorldPackets::Achievement::CriteriaProgress> Scenario::GetCriteriasP
     return criteriasProgress;
 }
 
-CriteriaList const& Scenario::GetCriteriaByType(CriteriaTypes type) const
+CriteriaList const& Scenario::GetCriteriaByType(CriteriaTypes type, uint32 /*asset*/) const
 {
     return sCriteriaMgr->GetScenarioCriteriaByType(type);
 }
 
 void Scenario::SendBootPlayer(Player* player)
 {
-    WorldPackets::Scenario::ScenarioBoot scenarioBoot;
+    WorldPackets::Scenario::ScenarioVacate scenarioBoot;
     scenarioBoot.ScenarioID = _data->Entry->ID;
     player->SendDirectMessage(scenarioBoot.Write());
 }

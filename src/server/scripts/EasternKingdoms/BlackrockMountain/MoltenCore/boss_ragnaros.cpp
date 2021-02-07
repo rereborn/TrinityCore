@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -88,7 +87,7 @@ class boss_ragnaros : public CreatureScript
                 Initialize();
                 _introState = 0;
                 me->SetReactState(REACT_PASSIVE);
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 SetCombatMovement(false);
             }
 
@@ -104,7 +103,7 @@ class boss_ragnaros : public CreatureScript
             {
                 BossAI::Reset();
                 Initialize();
-                me->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
+                me->SetEmoteState(EMOTE_ONESHOT_NONE);
             }
 
             void EnterCombat(Unit* victim) override
@@ -162,7 +161,8 @@ class boss_ragnaros : public CreatureScript
                             break;
                         case EVENT_INTRO_5:
                             me->SetReactState(REACT_AGGRESSIVE);
-                            me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC);
+                            me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+                            me->SetImmuneToPC(false);
                             _introState = 2;
                             break;
                         default:
@@ -176,9 +176,9 @@ class boss_ragnaros : public CreatureScript
                     {
                         //Become unbanished again
                         me->SetReactState(REACT_AGGRESSIVE);
-                        me->setFaction(14);
-                        me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-                        me->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
+                        me->SetFaction(FACTION_MONSTER);
+                        me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+                        me->SetEmoteState(EMOTE_ONESHOT_NONE);
                         me->HandleEmoteCommand(EMOTE_ONESHOT_EMERGE);
                         if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0))
                             AttackStart(target);
@@ -249,14 +249,14 @@ class boss_ragnaros : public CreatureScript
                                     //is not very well supported in the core //no it really isnt
                                     //so added normaly spawning and banish workaround and attack again after 90 secs.
                                     me->AttackStop();
-                                    DoResetThreat();
+                                    ResetThreatList();
                                     me->SetReactState(REACT_PASSIVE);
                                     me->InterruptNonMeleeSpells(false);
                                     //Root self
                                     //DoCast(me, 23973);
-                                    me->setFaction(35);
-                                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-                                    me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_SUBMERGED);
+                                    me->SetFaction(FACTION_FRIENDLY);
+                                    me->AddUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+                                    me->SetEmoteState(EMOTE_STATE_SUBMERGED);
                                     me->HandleEmoteCommand(EMOTE_ONESHOT_SUBMERGE);
                                     instance->SetData(DATA_RAGNAROS_ADDS, 0);
 

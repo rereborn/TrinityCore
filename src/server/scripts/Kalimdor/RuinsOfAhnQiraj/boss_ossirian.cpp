@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,6 +17,7 @@
 
 #include "ScriptMgr.h"
 #include "GameObject.h"
+#include "GameObjectAI.h"
 #include "InstanceScript.h"
 #include "Map.h"
 #include "MiscPackets.h"
@@ -195,7 +196,7 @@ class boss_ossirian : public CreatureScript
                 if (Creature* Trigger = me->SummonCreature(NPC_OSSIRIAN_TRIGGER, CrystalCoordinates[CrystalIterator]))
                 {
                     TriggerGUID = Trigger->GetGUID();
-                    if (GameObject* Crystal = Trigger->SummonGameObject(GO_OSSIRIAN_CRYSTAL, CrystalCoordinates[CrystalIterator], QuaternionData(), uint32(-1)))
+                    if (GameObject* Crystal = Trigger->SummonGameObject(GO_OSSIRIAN_CRYSTAL, CrystalCoordinates[CrystalIterator], QuaternionData::fromEulerAnglesZYX(CrystalCoordinates[CrystalIterator].GetOrientation(), 0.0f, 0.0f), uint32(-1)))
                     {
                         CrystalGUID = Crystal->GetGUID();
                         ++CrystalIterator;
@@ -283,18 +284,26 @@ class go_ossirian_crystal : public GameObjectScript
     public:
         go_ossirian_crystal() : GameObjectScript("go_ossirian_crystal") { }
 
-        bool OnGossipHello(Player* player, GameObject* /*go*/) override
+        struct go_ossirian_crystalAI : public GameObjectAI
         {
-            InstanceScript* Instance = player->GetInstanceScript();
-            if (!Instance)
-                return false;
+            go_ossirian_crystalAI(GameObject* go) : GameObjectAI(go), instance(go->GetInstanceScript()) { }
 
-            Creature* Ossirian = player->FindNearestCreature(NPC_OSSIRIAN, 30.0f);
-            if (!Ossirian || Instance->GetBossState(DATA_OSSIRIAN) != IN_PROGRESS)
-                return false;
+            InstanceScript* instance;
 
-            Ossirian->AI()->DoAction(ACTION_TRIGGER_WEAKNESS);
-            return true;
+            bool GossipHello(Player* player) override
+            {
+                Creature* ossirian = player->FindNearestCreature(NPC_OSSIRIAN, 30.0f);
+                if (!ossirian || instance->GetBossState(DATA_OSSIRIAN) != IN_PROGRESS)
+                    return false;
+
+                ossirian->AI()->DoAction(ACTION_TRIGGER_WEAKNESS);
+                return true;
+            }
+        };
+
+        GameObjectAI* GetAI(GameObject* go) const override
+        {
+            return GetAQ20AI<go_ossirian_crystalAI>(go);
         }
 };
 

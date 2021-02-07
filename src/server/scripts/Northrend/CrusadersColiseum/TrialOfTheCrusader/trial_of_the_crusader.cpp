@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -94,7 +93,7 @@ Position const ToCSpawnLoc[] =
     { 549.951f,  261.55f, 394.73f, 4.74835f }   //  2 Right
 };
 
-Position const ToCCommonLoc[23] =
+Position const ToCCommonLoc[] =
 {
     { 559.257996f, 90.266197f, 395.122986f, 0 },  //  0 Barrent
 
@@ -137,7 +136,7 @@ Position const LichKingLoc[] =
     { 563.547f, 141.613f, 393.908f, 0 }           // 1 - Lich king end
 };
 
-Position const AnubarakLoc[6] =
+Position const AnubarakLoc[] =
 {
     { 783.9305f, 132.9722f, 142.6711f, 3.141593f }, // 0 - Anub'arak Spawn Location (sniffed)
     { 695.240051f, 137.834824f, 142.200000f, 0 },  // 1 - Anub'arak move point location
@@ -184,103 +183,99 @@ class npc_announcer_toc10 : public CreatureScript
 
         struct npc_announcer_toc10AI : public ScriptedAI
         {
-            npc_announcer_toc10AI(Creature* creature) : ScriptedAI(creature) { }
+            npc_announcer_toc10AI(Creature* creature) : ScriptedAI(creature), instance(creature->GetInstanceScript()) { }
+
+            InstanceScript* instance;
 
             void Reset() override
             {
-                me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                me->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 if (Creature* pAlly = GetClosestCreatureWithEntry(me, NPC_THRALL, 300.0f))
-                    pAlly->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    pAlly->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 if (Creature* pAlly = GetClosestCreatureWithEntry(me, NPC_PROUDMOORE, 300.0f))
-                    pAlly->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
+                    pAlly->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             }
 
             void AttackStart(Unit* /*who*/) override { }
+
+            bool GossipHello(Player* player) override
+            {
+                char const* _message = "We are ready!";
+
+                if (player->IsInCombat() || instance->IsEncounterInProgress())
+                    return true;
+
+                uint8 i = 0;
+                for (; i < NUM_MESSAGES; ++i)
+                {
+                    if ((!_GossipMessage[i].state && instance->GetBossState(_GossipMessage[i].encounter) != DONE)
+                        || (_GossipMessage[i].state && instance->GetBossState(_GossipMessage[i].encounter) == DONE))
+                    {
+                        AddGossipItemFor(player, GOSSIP_ICON_CHAT, _message, GOSSIP_SENDER_MAIN, _GossipMessage[i].id);
+                        break;
+                    }
+                }
+
+                if (i >= NUM_MESSAGES)
+                    return false;
+
+                SendGossipMenuFor(player, _GossipMessage[i].msgnum, me->GetGUID());
+                return true;
+            }
+
+            bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 /*gossipListId*/) override
+            {
+                ClearGossipMenuFor(player);
+                CloseGossipMenuFor(player);
+
+                if (instance->GetBossState(BOSS_BEASTS) != DONE)
+                {
+                    instance->SetData(TYPE_EVENT, 110);
+                    instance->SetData(TYPE_NORTHREND_BEASTS, NOT_STARTED);
+                    instance->SetBossState(BOSS_BEASTS, NOT_STARTED);
+                }
+                else if (instance->GetBossState(BOSS_JARAXXUS) != DONE)
+                {
+                    // if Jaraxxus is spawned, but the raid wiped
+                    if (Creature* jaraxxus = ObjectAccessor::GetCreature(*player, instance->GetGuidData(NPC_JARAXXUS)))
+                    {
+                        jaraxxus->RemoveAurasDueToSpell(SPELL_JARAXXUS_CHAINS);
+                        jaraxxus->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+                        jaraxxus->SetImmuneToPC(false);
+                        jaraxxus->SetReactState(REACT_DEFENSIVE);
+                        jaraxxus->SetInCombatWithZone();
+                    }
+                    else
+                    {
+                        instance->SetData(TYPE_EVENT, 1010);
+                        instance->SetBossState(BOSS_JARAXXUS, NOT_STARTED);
+                    }
+                }
+                else if (instance->GetBossState(BOSS_CRUSADERS) != DONE)
+                {
+                    if (player->GetTeam() == ALLIANCE)
+                        instance->SetData(TYPE_EVENT, 3000);
+                    else
+                        instance->SetData(TYPE_EVENT, 3001);
+                    instance->SetBossState(BOSS_CRUSADERS, NOT_STARTED);
+                }
+                else if (instance->GetBossState(BOSS_VALKIRIES) != DONE)
+                {
+                    instance->SetData(TYPE_EVENT, 4000);
+                    instance->SetBossState(BOSS_VALKIRIES, NOT_STARTED);
+                }
+                else if (instance->GetBossState(BOSS_LICH_KING) != DONE)
+                {
+                    if (me->GetMap()->GetPlayers().getFirst()->GetSource()->GetTeam() == ALLIANCE)
+                        instance->SetData(TYPE_EVENT, 4020);
+                    else
+                        instance->SetData(TYPE_EVENT, 4030);
+                    instance->SetBossState(BOSS_LICH_KING, NOT_STARTED);
+                }
+                me->RemoveNpcFlag(UNIT_NPC_FLAG_GOSSIP);
+                return true;
+            }
         };
-
-        bool OnGossipHello(Player* player, Creature* creature) override
-        {
-            InstanceScript* instance = creature->GetInstanceScript();
-            if (!instance)
-                return true;
-
-            char const* _message = "We are ready!";
-
-            if (player->IsInCombat() || instance->IsEncounterInProgress())
-                return true;
-
-            uint8 i = 0;
-            for (; i < NUM_MESSAGES; ++i)
-            {
-                if ((!_GossipMessage[i].state && instance->GetBossState(_GossipMessage[i].encounter) != DONE)
-                    || (_GossipMessage[i].state && instance->GetBossState(_GossipMessage[i].encounter) == DONE))
-                {
-                    AddGossipItemFor(player, GOSSIP_ICON_CHAT, _message, GOSSIP_SENDER_MAIN, _GossipMessage[i].id);
-                    break;
-                }
-            }
-
-            if (i >= NUM_MESSAGES)
-                return false;
-
-            SendGossipMenuFor(player, _GossipMessage[i].msgnum, creature->GetGUID());
-            return true;
-        }
-
-        bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 /*action*/) override
-        {
-            ClearGossipMenuFor(player);
-            CloseGossipMenuFor(player);
-            InstanceScript* instance = creature->GetInstanceScript();
-            if (!instance)
-                return true;
-
-            if (instance->GetBossState(BOSS_BEASTS) != DONE)
-            {
-                instance->SetData(TYPE_EVENT, 110);
-                instance->SetData(TYPE_NORTHREND_BEASTS, NOT_STARTED);
-                instance->SetBossState(BOSS_BEASTS, NOT_STARTED);
-            }
-            else if (instance->GetBossState(BOSS_JARAXXUS) != DONE)
-            {
-                // if Jaraxxus is spawned, but the raid wiped
-                if (Creature* jaraxxus = ObjectAccessor::GetCreature(*player, instance->GetGuidData(NPC_JARAXXUS)))
-                {
-                    jaraxxus->RemoveAurasDueToSpell(SPELL_JARAXXUS_CHAINS);
-                    jaraxxus->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC);
-                    jaraxxus->SetReactState(REACT_DEFENSIVE);
-                    jaraxxus->SetInCombatWithZone();
-                }
-                else
-                {
-                    instance->SetData(TYPE_EVENT, 1010);
-                    instance->SetBossState(BOSS_JARAXXUS, NOT_STARTED);
-                }
-            }
-            else if (instance->GetBossState(BOSS_CRUSADERS) != DONE)
-            {
-                if (player->GetTeam() == ALLIANCE)
-                    instance->SetData(TYPE_EVENT, 3000);
-                else
-                    instance->SetData(TYPE_EVENT, 3001);
-                instance->SetBossState(BOSS_CRUSADERS, NOT_STARTED);
-            }
-            else if (instance->GetBossState(BOSS_VALKIRIES) != DONE)
-            {
-                instance->SetData(TYPE_EVENT, 4000);
-                instance->SetBossState(BOSS_VALKIRIES, NOT_STARTED);
-            }
-            else if (instance->GetBossState(BOSS_LICH_KING) != DONE)
-            {
-                if (creature->GetMap()->GetPlayers().getFirst()->GetSource()->GetTeam() == ALLIANCE)
-                    instance->SetData(TYPE_EVENT, 4020);
-                else
-                    instance->SetData(TYPE_EVENT, 4030);
-                instance->SetBossState(BOSS_LICH_KING, NOT_STARTED);
-            }
-            creature->RemoveFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
-            return true;
-        }
 
         CreatureAI* GetAI(Creature* creature) const override
         {
@@ -306,7 +301,7 @@ class boss_lich_king_toc : public CreatureScript
                 if (Creature* summoned = me->SummonCreature(NPC_TRIGGER, ToCCommonLoc[2].GetPositionX(), ToCCommonLoc[2].GetPositionY(), ToCCommonLoc[2].GetPositionZ(), 5, TEMPSUMMON_TIMED_DESPAWN, 1*MINUTE*IN_MILLISECONDS))
                 {
                     summoned->CastSpell(summoned, 51807, false);
-                    summoned->SetDisplayId(summoned->GetCreatureTemplate()->Modelid2);
+                    summoned->SetDisplayFromModel(1);
                 }
 
                 _instance->SetBossState(BOSS_LICH_KING, IN_PROGRESS);
@@ -352,12 +347,12 @@ class boss_lich_king_toc : public CreatureScript
                             break;
                         case 5030:
                             Talk(SAY_STAGE_4_04);
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_TALK);
+                            me->SetEmoteState(EMOTE_STATE_TALK);
                             _updateTimer = 10*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 5040);
                             break;
                         case 5040:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
+                            me->SetEmoteState(EMOTE_ONESHOT_NONE);
                             me->GetMotionMaster()->MovePoint(1, LichKingLoc[1]);
                             _updateTimer = 1*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 0);
@@ -435,7 +430,8 @@ class npc_fizzlebang_toc : public CreatureScript
                 _instance->SetData(TYPE_EVENT, 1180);
                 if (Creature* jaraxxus = ObjectAccessor::GetCreature(*me, _instance->GetGuidData(NPC_JARAXXUS)))
                 {
-                    jaraxxus->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC);
+                    jaraxxus->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+                    jaraxxus->SetImmuneToPC(false);
                     jaraxxus->SetReactState(REACT_AGGRESSIVE);
                     jaraxxus->SetInCombatWithZone();
                 }
@@ -497,11 +493,11 @@ class npc_fizzlebang_toc : public CreatureScript
                             me->GetMotionMaster()->MovementExpired();
                             Talk(SAY_STAGE_1_03);
                             me->HandleEmoteCommand(EMOTE_ONESHOT_SPELL_CAST_OMNI);
-                            if (Unit* pTrigger =  me->SummonCreature(NPC_TRIGGER, ToCCommonLoc[1].GetPositionX(), ToCCommonLoc[1].GetPositionY(), ToCCommonLoc[1].GetPositionZ(), 4.69494f, TEMPSUMMON_MANUAL_DESPAWN))
+                            if (Creature* pTrigger = me->SummonCreature(NPC_TRIGGER, ToCCommonLoc[1].GetPositionX(), ToCCommonLoc[1].GetPositionY(), ToCCommonLoc[1].GetPositionZ(), 4.69494f, TEMPSUMMON_MANUAL_DESPAWN))
                             {
                                 _triggerGUID = pTrigger->GetGUID();
                                 pTrigger->SetObjectScale(2.0f);
-                                pTrigger->SetDisplayId(pTrigger->ToCreature()->GetCreatureTemplate()->Modelid1);
+                                pTrigger->SetDisplayFromModel(0);
                                 pTrigger->CastSpell(pTrigger, SPELL_WILFRED_PORTAL, false);
                             }
                             _instance->SetData(TYPE_EVENT, 1132);
@@ -532,7 +528,8 @@ class npc_fizzlebang_toc : public CreatureScript
                             Talk(SAY_STAGE_1_04);
                             if (Creature* jaraxxus = me->SummonCreature(NPC_JARAXXUS, ToCCommonLoc[1].GetPositionX(), ToCCommonLoc[1].GetPositionY(), ToCCommonLoc[1].GetPositionZ(), 5.0f, TEMPSUMMON_CORPSE_TIMED_DESPAWN, DESPAWN_TIME))
                             {
-                                jaraxxus->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC);
+                                jaraxxus->AddUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+                                jaraxxus->SetImmuneToPC(true);
                                 jaraxxus->SetReactState(REACT_PASSIVE);
                                 jaraxxus->GetMotionMaster()->MovePoint(0, ToCCommonLoc[1].GetPositionX(), ToCCommonLoc[1].GetPositionY()-10, ToCCommonLoc[1].GetPositionZ());
                             }
@@ -560,8 +557,7 @@ class npc_fizzlebang_toc : public CreatureScript
                             {
                                 //1-shot Fizzlebang
                                 jaraxxus->CastSpell(me, 67888, false); // 67888 - Fel Lightning
-                                me->SetInCombatWith(jaraxxus);
-                                jaraxxus->AddThreat(me, 1000.0f);
+                                AddThreat(me, 1000.0f, jaraxxus);
                                 jaraxxus->AI()->AttackStart(me);
                             }
                             _instance->SetData(TYPE_EVENT, 1160);
@@ -617,19 +613,19 @@ class npc_tirion_toc : public CreatureScript
                     switch (_instance->GetData(TYPE_EVENT))
                     {
                         case 110:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_TALK);
+                            me->SetEmoteState(EMOTE_ONESHOT_TALK);
                             Talk(SAY_STAGE_0_01);
                             _updateTimer = 22*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 120);
                             break;
                         case 140:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_TALK);
+                            me->SetEmoteState(EMOTE_ONESHOT_TALK);
                             Talk(SAY_STAGE_0_02);
                             _updateTimer = 5*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 150);
                             break;
                         case 150:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_NONE);
+                            me->SetEmoteState(EMOTE_STATE_NONE);
                             if (_instance->GetBossState(BOSS_BEASTS) != DONE)
                             {
                                 _instance->DoUseDoorOrButton(_instance->GetGuidData(GO_MAIN_GATE_DOOR));
@@ -637,7 +633,7 @@ class npc_tirion_toc : public CreatureScript
                                 if (Creature* gormok = me->SummonCreature(NPC_GORMOK, ToCSpawnLoc[0].GetPositionX(), ToCSpawnLoc[0].GetPositionY(), ToCSpawnLoc[0].GetPositionZ(), 5, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 30*IN_MILLISECONDS))
                                 {
                                     gormok->GetMotionMaster()->MovePoint(0, ToCCommonLoc[5].GetPositionX(), ToCCommonLoc[5].GetPositionY(), ToCCommonLoc[5].GetPositionZ());
-                                    gormok->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                                    gormok->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
                                     gormok->SetReactState(REACT_PASSIVE);
                                 }
                             }
@@ -658,7 +654,7 @@ class npc_tirion_toc : public CreatureScript
                                 if (Creature* dreadscale = me->SummonCreature(NPC_DREADSCALE, ToCSpawnLoc[1].GetPositionX(), ToCSpawnLoc[1].GetPositionY(), ToCSpawnLoc[1].GetPositionZ(), 5, TEMPSUMMON_MANUAL_DESPAWN))
                                 {
                                     dreadscale->GetMotionMaster()->MovePoint(0, ToCCommonLoc[5].GetPositionX(), ToCCommonLoc[5].GetPositionY(), ToCCommonLoc[5].GetPositionZ());
-                                    dreadscale->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                                    dreadscale->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
                                     dreadscale->SetReactState(REACT_PASSIVE);
                                 }
                             }
@@ -676,7 +672,7 @@ class npc_tirion_toc : public CreatureScript
                                 if (Creature* icehowl = me->SummonCreature(NPC_ICEHOWL, ToCSpawnLoc[0].GetPositionX(), ToCSpawnLoc[0].GetPositionY(), ToCSpawnLoc[0].GetPositionZ(), 5, TEMPSUMMON_DEAD_DESPAWN))
                                 {
                                     icehowl->GetMotionMaster()->MovePoint(2, ToCCommonLoc[5].GetPositionX(), ToCCommonLoc[5].GetPositionY(), ToCCommonLoc[5].GetPositionZ());
-                                    me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                                    me->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE));
                                     me->SetReactState(REACT_PASSIVE);
                                 }
                             }
@@ -688,7 +684,7 @@ class npc_tirion_toc : public CreatureScript
                             break;
                         case 400:
                             Talk(SAY_STAGE_0_06);
-                            me->getThreatManager().clearReferences();
+                            me->GetThreatManager().ClearAllThreat();
                             _updateTimer = 5*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 0);
                             break;
@@ -829,7 +825,7 @@ class npc_tirion_toc : public CreatureScript
                         case 6000:
                             me->SummonCreature(NPC_TIRION_FORDRING, EndSpawnLoc[0]);
                             me->SummonCreature(NPC_ARGENT_MAGE, EndSpawnLoc[1]);
-                            me->SummonGameObject(GO_PORTAL_TO_DALARAN, EndSpawnLoc[2], QuaternionData(), 0);
+                            me->SummonGameObject(GO_PORTAL_TO_DALARAN, EndSpawnLoc[2], QuaternionData::fromEulerAnglesZYX(EndSpawnLoc[2].GetOrientation(), 0.0f, 0.0f), 0);
                             _updateTimer = 20*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 6005);
                             break;
@@ -904,13 +900,13 @@ class npc_garrosh_toc : public CreatureScript
                     switch (_instance->GetData(TYPE_EVENT))
                     {
                         case 130:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_TALK);
+                            me->SetEmoteState(EMOTE_ONESHOT_TALK);
                             Talk(SAY_STAGE_0_03h);
                             _updateTimer = 3*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 132);
                             break;
                         case 132:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_NONE);
+                            me->SetEmoteState(EMOTE_STATE_NONE);
                             _updateTimer = 5*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 140);
                             break;
@@ -987,13 +983,13 @@ class npc_varian_toc : public CreatureScript
                     switch (_instance->GetData(TYPE_EVENT))
                     {
                         case 120:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_TALK);
+                            me->SetEmoteState(EMOTE_ONESHOT_TALK);
                             Talk(SAY_STAGE_0_03a);
                             _updateTimer = 2*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 122);
                             break;
                         case 122:
-                            me->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_STATE_NONE);
+                            me->SetEmoteState(EMOTE_STATE_NONE);
                             _updateTimer = 3*IN_MILLISECONDS;
                             _instance->SetData(TYPE_EVENT, 130);
                             break;

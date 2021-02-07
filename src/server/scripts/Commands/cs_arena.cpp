@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +24,7 @@ EndScriptData */
 
 #include "ScriptMgr.h"
 #include "ArenaTeamMgr.h"
+#include "CharacterCache.h"
 #include "Chat.h"
 #include "Language.h"
 #include "Log.h"
@@ -50,7 +51,7 @@ public:
         };
         static std::vector<ChatCommand> commandTable =
         {
-            { "arena",          rbac::RBAC_PERM_COMMAND_ARENA,     false, NULL,                       "", arenaCommandTable },
+            { "arena",          rbac::RBAC_PERM_COMMAND_ARENA,     false, nullptr,                       "", arenaCommandTable },
         };
         return commandTable;
     }
@@ -61,10 +62,10 @@ public:
             return false;
 
         Player* target;
-        if (!handler->extractPlayerTarget(*args != '"' ? (char*)args : NULL, &target))
+        if (!handler->extractPlayerTarget(*args != '"' ? (char*)args : nullptr, &target))
             return false;
 
-        char* tailStr = *args != '"' ? strtok(NULL, "") : (char*)args;
+        char* tailStr = *args != '"' ? strtok(nullptr, "") : (char*)args;
         if (!tailStr)
             return false;
 
@@ -72,7 +73,7 @@ public:
         if (!name)
             return false;
 
-        char* typeStr = strtok(NULL, "");
+        char* typeStr = strtok(nullptr, "");
         if (!typeStr)
             return false;
 
@@ -86,7 +87,7 @@ public:
 
         if (type == 2 || type == 3 || type == 5 )
         {
-            if (Player::GetArenaTeamIdFromDB(target->GetGUID(), type) != 0)
+            if (sCharacterCache->GetCharacterArenaTeamIdByGuid(target->GetGUID(), type) != 0)
             {
                 handler->PSendSysMessage(LANG_ARENA_ERROR_SIZE, target->GetName().c_str());
                 handler->SetSentErrorMessage(true);
@@ -170,7 +171,7 @@ public:
             return false;
         }
 
-        char const* newArenaStr = handler->extractQuotedArg(strtok(NULL, ""));
+        char const* newArenaStr = handler->extractQuotedArg(strtok(nullptr, ""));
         if (!newArenaStr)
         {
             handler->SendSysMessage(LANG_BAD_VALUE);
@@ -277,7 +278,7 @@ public:
         arena->SetCaptain(targetGuid);
 
         std::string oldCaptainName;
-        if (!ObjectMgr::GetPlayerNameByGUID(arena->GetCaptain(), oldCaptainName))
+        if (!sCharacterCache->GetCharacterNameByGuid(arena->GetCaptain(), oldCaptainName))
         {
             handler->SetSentErrorMessage(true);
             return false;

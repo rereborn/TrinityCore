@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,13 +18,12 @@
 #ifndef Session_h__
 #define Session_h__
 
+#include "AsyncCallbackProcessor.h"
 #include "Realm.h"
 #include "SslContext.h"
 #include "SslSocket.h"
 #include "Socket.h"
-#include "BigNumber.h"
 #include "QueryResult.h"
-#include "QueryCallbackProcessor.h"
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl.hpp>
 #include <google/protobuf/message.h>
@@ -99,6 +98,7 @@ namespace Battlenet
             uint32 Id;
             std::string Name;
             std::string DisplayName;
+            uint32 UnbanDate;
             bool IsBanned;
             bool IsPermanenetlyBanned;
             AccountTypes SecurityLevel;

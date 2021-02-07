@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +24,9 @@
 #include "Position.h"
 #include <array>
 
+enum class GossipOptionStatus : uint8;
+enum class GossipOptionRewardType : uint8;
+
 namespace WorldPackets
 {
     namespace NPC
@@ -45,25 +48,42 @@ namespace WorldPackets
             ObjectGuid Unit;
         };
 
+        struct TreasureItem
+        {
+            GossipOptionRewardType Type = GossipOptionRewardType(0);
+            int32 ID = 0;
+            int32 Quantity = 0;
+        };
+
+        struct TreasureLootList
+        {
+            std::vector<TreasureItem> Items;
+        };
+
         struct ClientGossipOptions
         {
             int32 ClientOption  = 0;
             uint8 OptionNPC     = 0;
             uint8 OptionFlags   = 0;
             int32 OptionCost    = 0;
+            GossipOptionStatus Status = GossipOptionStatus(0);
             std::string Text;
             std::string Confirm;
+            TreasureLootList Treasure;
+            Optional<int32> SpellID;
         };
 
         struct ClientGossipText
         {
             int32 QuestID       = 0;
+            int32 ContentTuningID = 0;
             int32 QuestType     = 0;
-            int32 QuestLevel    = 0;
             bool Repeatable     = false;
             std::string QuestTitle;
             int32 QuestFlags[2] = { };
         };
+
+        ByteBuffer& operator<<(ByteBuffer& data, ClientGossipText const& gossipText);
 
         class GossipMessage final : public ServerPacket
         {
@@ -112,7 +132,9 @@ namespace WorldPackets
             int32 StackCount                = 0;
             int32 ExtendedCostID            = 0;
             int32 PlayerConditionFailed     = 0;
+            bool Locked                     = false;
             bool DoNotFilterOnVendor        = false;
+            bool Refundable                 = false;
         };
 
         class VendorInventory final : public ServerPacket
@@ -130,9 +152,9 @@ namespace WorldPackets
         struct TrainerListSpell
         {
             int32 SpellID       = 0;
-            int32 MoneyCost     = 0;
-            int32 ReqSkillLine  = 0;
-            int32 ReqSkillRank  = 0;
+            uint32 MoneyCost    = 0;
+            uint32 ReqSkillLine = 0;
+            uint32 ReqSkillRank = 0;
             std::array<int32, 3> ReqAbility = { };
             uint8 Usable        = 0;
             uint8 ReqLevel      = 0;
@@ -179,6 +201,7 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
+            int32 ID            = 0;
             uint32 Flags        = 0;
             TaggedPosition<Position::XY> Pos;
             int32 Icon          = 0;

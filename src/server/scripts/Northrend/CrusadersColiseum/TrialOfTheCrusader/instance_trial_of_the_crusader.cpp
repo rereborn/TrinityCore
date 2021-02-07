@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -25,14 +24,15 @@
 #include "Player.h"
 #include "TemporarySummon.h"
 #include "trial_of_the_crusader.h"
+#include <sstream>
 
 BossBoundaryData const boundaries =
 {
-    { BOSS_BEASTS, new CircleBoundary(Position(563.26f, 139.6f), 75.0) },
-    { BOSS_JARAXXUS, new CircleBoundary(Position(563.26f, 139.6f), 75.0) },
-    { BOSS_CRUSADERS, new CircleBoundary(Position(563.26f, 139.6f), 75.0) },
-    { BOSS_VALKIRIES, new CircleBoundary(Position(563.26f, 139.6f), 75.0) },
-    { BOSS_ANUBARAK, new EllipseBoundary(Position(746.0f, 135.0f), 100.0, 75.0) }
+    { BOSS_BEASTS,    new CircleBoundary(Position(563.26f, 139.6f), 75.0)        },
+    { BOSS_JARAXXUS,  new CircleBoundary(Position(563.26f, 139.6f), 75.0)        },
+    { BOSS_CRUSADERS, new CircleBoundary(Position(563.26f, 139.6f), 75.0)        },
+    { BOSS_VALKIRIES, new CircleBoundary(Position(563.26f, 139.6f), 75.0)        },
+    { BOSS_ANUBARAK,  new EllipseBoundary(Position(746.0f, 135.0f), 100.0, 75.0) }
 };
 
 class instance_trial_of_the_crusader : public InstanceMapScript
@@ -42,7 +42,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
 
         struct instance_trial_of_the_crusader_InstanceMapScript : public InstanceScript
         {
-            instance_trial_of_the_crusader_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_trial_of_the_crusader_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(MAX_ENCOUNTERS);
@@ -248,7 +248,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
                                     DoUpdateCriteria(CRITERIA_TYPE_BE_SPELL_TARGET, SPELL_CHAMPIONS_KILLED_IN_MINUTE);
                                 DoRespawnGameObject(CrusadersCacheGUID, 7*DAY);
                                 if (GameObject* cache = instance->GetGameObject(CrusadersCacheGUID))
-                                    cache->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                    cache->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
                                 EventStage = 3100;
                                 break;
                             default:
@@ -282,7 +282,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
                             {
                                 EventStage = 6000;
                                 uint32 tributeChest = 0;
-                                if (instance->GetSpawnMode() == DIFFICULTY_10_HC)
+                                if (instance->GetDifficultyID() == DIFFICULTY_10_HC)
                                 {
                                     if (TrialCounter >= 50)
                                         tributeChest = GO_TRIBUTE_CHEST_10H_99;
@@ -299,7 +299,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
                                         }
                                     }
                                 }
-                                else if (instance->GetSpawnMode() == DIFFICULTY_25_HC)
+                                else if (instance->GetDifficultyID() == DIFFICULTY_25_HC)
                                 {
                                     if (TrialCounter >= 50)
                                         tributeChest = GO_TRIBUTE_CHEST_25H_99;
@@ -319,7 +319,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
 
                                 if (tributeChest)
                                     if (Creature* tirion =  instance->GetCreature(TirionGUID))
-                                        if (GameObject* chest = tirion->SummonGameObject(tributeChest, 805.62f, 134.87f, 142.16f, 3.27f, QuaternionData(), WEEK))
+                                        if (GameObject* chest = tirion->SummonGameObject(tributeChest, 805.62f, 134.87f, 142.16f, 3.27f, QuaternionData::fromEulerAnglesZYX(3.27f, 0.0f, 0.0f), WEEK))
                                             chest->SetRespawnTime(chest->GetRespawnDelay());
                                 break;
                             }
@@ -351,7 +351,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
                         {
                             --TrialCounter;
                             // decrease attempt counter at wipe
-                            Map::PlayerList const &PlayerList = instance->GetPlayers();
+                            Map::PlayerList const& PlayerList = instance->GetPlayers();
                             for (Map::PlayerList::const_iterator itr = PlayerList.begin(); itr != PlayerList.end(); ++itr)
                                 if (Player* player = itr->GetSource())
                                     player->SendUpdateWorldState(UPDATE_STATE_UI_COUNT, TrialCounter);
@@ -374,7 +374,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
                     if (state == DONE || NeedSave)
                     {
                         if (Unit* announcer = instance->GetCreature(GetGuidData(NPC_BARRENT)))
-                            announcer->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                            announcer->AddNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                         Save();
                     }
                 }
@@ -645,7 +645,7 @@ class instance_trial_of_the_crusader : public InstanceMapScript
                 return SaveDataBuffer;
             }
 
-            void Load(const char* strIn) override
+            void Load(char const* strIn) override
             {
                 if (!strIn)
                 {

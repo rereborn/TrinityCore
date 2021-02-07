@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,6 +19,7 @@
 #define PartyPackets_h__
 
 #include "Packet.h"
+#include "AuthenticationPackets.h"
 #include "ObjectGuid.h"
 #include "Group.h"
 #include "Optional.h"
@@ -48,8 +49,8 @@ namespace WorldPackets
 
             void Read() override;
 
-            int8 PartyIndex = 0;
-            int32 ProposedRoles = 0;
+            uint8 PartyIndex = 0;
+            uint32 ProposedRoles = 0;
             std::string TargetName;
             std::string TargetRealm;
             ObjectGuid TargetGUID;
@@ -67,27 +68,24 @@ namespace WorldPackets
             bool MightCRZYou = false;
             bool MustBeBNetFriend = false;
             bool AllowMultipleRoles = false;
-            bool Unk2 = false;
+            bool QuestSessionActive = false;
             uint16 Unk1 = 0;
 
             bool CanAccept = false;
 
             // Inviter
+            Auth::VirtualRealmInfo InviterRealm;
             ObjectGuid InviterGUID;
             ObjectGuid InviterBNetAccountId;
             std::string InviterName;
 
             // Realm
             bool IsXRealm = false;
-            bool IsLocal = true;
-            uint32 InviterVirtualRealmAddress = 0u;
-            std::string InviterRealmNameActual;
-            std::string InviterRealmNameNormalized;
 
             // Lfg
-            int32 ProposedRoles = 0;
-            int32 LfgCompletedMask = 0;
-            std::vector<int32> LfgSlots;
+            uint32 ProposedRoles = 0;
+            uint32 LfgCompletedMask = 0;
+            std::vector<uint32> LfgSlots;
         };
 
         class PartyInviteResponse final : public ClientPacket
@@ -97,9 +95,9 @@ namespace WorldPackets
 
             void Read() override;
 
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             bool Accept = false;
-            Optional<int32> RolesDesired;
+            Optional<uint32> RolesDesired;
         };
 
         class PartyUninvite final : public ClientPacket
@@ -109,7 +107,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             ObjectGuid TargetGUID;
             std::string Reason;
         };
@@ -122,6 +120,14 @@ namespace WorldPackets
             WorldPacket const* Write() override;
 
             std::string Name;
+        };
+
+        class GroupUninvite final : public ServerPacket
+        {
+        public:
+            GroupUninvite() : ServerPacket(SMSG_GROUP_UNINVITE, 0) { }
+
+            WorldPacket const* Write() override { return &_worldPacket; }
         };
 
         class RequestPartyMemberStats final : public ClientPacket
@@ -151,7 +157,7 @@ namespace WorldPackets
         struct PartyMemberAuraStates
         {
             int32 SpellID = 0;
-            uint8 Flags = 0;
+            uint16 Flags = 0;
             uint32 ActiveFlags = 0u;
             std::vector<float> Points;
         };
@@ -166,6 +172,13 @@ namespace WorldPackets
             int32 MaxHealth = 0;
 
             std::vector<PartyMemberAuraStates> Auras;
+        };
+
+        struct CTROptions
+        {
+            uint32 ContentTuningConditionMask = 0;
+            int32 Unused901 = 0;
+            uint32 ExpansionLevelMask = 0;
         };
 
         struct PartyMemberStats
@@ -196,12 +209,14 @@ namespace WorldPackets
             uint16 WmoGroupID = 0;
             uint32 WmoDoodadPlacementID = 0;
             int8 PartyType[2];
+
+            CTROptions ChromieTime;
         };
 
-        class PartyMemberState final : public ServerPacket
+        class PartyMemberFullState final : public ServerPacket
         {
         public:
-            PartyMemberState() : ServerPacket(SMSG_PARTY_MEMBER_STATE, 80) { }
+            PartyMemberFullState() : ServerPacket(SMSG_PARTY_MEMBER_FULL_STATE, 80) { }
 
             WorldPacket const* Write() override;
             void Initialize(Player const* player);
@@ -327,7 +342,7 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             std::map<uint8, ObjectGuid> TargetIcons;
         };
 
@@ -359,7 +374,7 @@ namespace WorldPackets
             void Read() override;
 
             ObjectGuid Target;
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             bool Apply = false;
         };
 
@@ -405,7 +420,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             bool IsReady = false;
         };
 
@@ -486,13 +501,14 @@ namespace WorldPackets
         {
             ObjectGuid GUID;
             std::string Name;
+            std::string VoiceStateID;   // same as bgs.protocol.club.v1.MemberVoiceState.id
             uint8 Class = 0;
-
             uint8 Status = 0u;
             uint8 Subgroup = 0u;
             uint8 Flags = 0u;
             uint8 RolesAssigned = 0u;
             bool FromSocialQueue = false;
+            bool VoiceChatSilenced = false;
         };
 
         struct PartyLFGInfo
@@ -554,7 +570,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             bool EveryoneIsAssistant = false;
         };
 
@@ -599,10 +615,10 @@ namespace WorldPackets
 
             WorldPacket const* Write() override;
 
-            int8 PartyIndex = 0;
+            uint8 PartyIndex = 0;
             uint32 ActiveMarkers = 0u;
 
-            std::vector<RaidMarker*> RaidMarkers;
+            std::vector<RaidMarker const*> RaidMarkers;
         };
 
         class PartyKillLog final : public ServerPacket

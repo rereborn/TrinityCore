@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -51,6 +51,7 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Social::ContactInfo const
     data << uint32(contact.Level);
     data << uint32(contact.ClassID);
     data.WriteBits(contact.Notes.length(), 10);
+    data.WriteBit(contact.Mobile);
     data.FlushBits();
     data.WriteString(contact.Notes);
 
@@ -63,8 +64,8 @@ WorldPacket const* WorldPackets::Social::ContactList::Write()
     _worldPacket.WriteBits(Contacts.size(), 8);
     _worldPacket.FlushBits();
 
-    for (size_t i = 0; i < Contacts.size(); ++i)
-        _worldPacket << Contacts[i];
+    for (ContactInfo const& contact : Contacts)
+        _worldPacket << contact;
 
     return &_worldPacket;
 }
@@ -93,6 +94,7 @@ WorldPacket const* WorldPackets::Social::FriendStatus::Write()
     _worldPacket << uint32(Level);
     _worldPacket << uint32(ClassID);
     _worldPacket.WriteBits(Notes.length(), 10);
+    _worldPacket.WriteBit(Mobile);
     _worldPacket.FlushBits();
     _worldPacket.WriteString(Notes);
 

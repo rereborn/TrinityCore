@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -53,7 +53,11 @@ WorldPacket const* WorldPackets::Misc::SetCurrency::Write()
     _worldPacket.WriteBit(WeeklyQuantity.is_initialized());
     _worldPacket.WriteBit(TrackedQuantity.is_initialized());
     _worldPacket.WriteBit(MaxQuantity.is_initialized());
+    _worldPacket.WriteBit(Unused901.is_initialized());
     _worldPacket.WriteBit(SuppressChatLog);
+    _worldPacket.WriteBit(QuantityChange.is_initialized());
+    _worldPacket.WriteBit(QuantityGainSource.is_initialized());
+    _worldPacket.WriteBit(QuantityLostSource.is_initialized());
     _worldPacket.FlushBits();
 
     if (WeeklyQuantity)
@@ -64,6 +68,18 @@ WorldPacket const* WorldPackets::Misc::SetCurrency::Write()
 
     if (MaxQuantity)
         _worldPacket << int32(*MaxQuantity);
+
+    if (Unused901)
+        _worldPacket << int32(*Unused901);
+
+    if (QuantityChange)
+        _worldPacket << int32(*QuantityChange);
+
+    if (QuantityGainSource)
+        _worldPacket << int32(*QuantityGainSource);
+
+    if (QuantityLostSource)
+        _worldPacket << int32(*QuantityLostSource);
 
     return &_worldPacket;
 }
@@ -86,6 +102,7 @@ WorldPacket const* WorldPackets::Misc::SetupCurrency::Write()
         _worldPacket.WriteBit(data.MaxWeeklyQuantity.is_initialized());
         _worldPacket.WriteBit(data.TrackedQuantity.is_initialized());
         _worldPacket.WriteBit(data.MaxQuantity.is_initialized());
+        _worldPacket.WriteBit(data.Unused901.is_initialized());
         _worldPacket.WriteBits(data.Flags, 5);
         _worldPacket.FlushBits();
 
@@ -97,6 +114,8 @@ WorldPacket const* WorldPackets::Misc::SetupCurrency::Write()
             _worldPacket << uint32(*data.TrackedQuantity);
         if (data.MaxQuantity)
             _worldPacket << int32(*data.MaxQuantity);
+        if (data.Unused901)
+            _worldPacket << int32(*data.Unused901);
     }
 
     return &_worldPacket;
@@ -120,7 +139,7 @@ void WorldPackets::Misc::TimeSyncResponse::Read()
     _worldPacket >> ClientTime;
 }
 
-WorldPacket const* WorldPackets::Misc::UITime::Write()
+WorldPacket const* WorldPackets::Misc::ServerTimeOffset::Write()
 {
     _worldPacket << Time;
 
@@ -160,6 +179,7 @@ WorldPacket const* WorldPackets::Misc::WorldServerInfo::Write()
     _worldPacket << uint32(DifficultyID);
     _worldPacket << uint8(IsTournamentRealm);
     _worldPacket.WriteBit(XRealmPvpAlert);
+    _worldPacket.WriteBit(BlockExitingLoadingScreen);
     _worldPacket.WriteBit(RestrictedAccountMaxLevel.is_initialized());
     _worldPacket.WriteBit(RestrictedAccountMaxMoney.is_initialized());
     _worldPacket.WriteBit(InstanceGroupSize.is_initialized());
@@ -168,7 +188,7 @@ WorldPacket const* WorldPackets::Misc::WorldServerInfo::Write()
         _worldPacket << uint32(*RestrictedAccountMaxLevel);
 
     if (RestrictedAccountMaxMoney)
-        _worldPacket << uint32(*RestrictedAccountMaxMoney);
+        _worldPacket << uint64(*RestrictedAccountMaxMoney);
 
     if (InstanceGroupSize)
         _worldPacket << uint32(*InstanceGroupSize);
@@ -283,6 +303,15 @@ WorldPacket const* WorldPackets::Misc::StandStateUpdate::Write()
     return &_worldPacket;
 }
 
+WorldPacket const* WorldPackets::Misc::SetAnimTier::Write()
+{
+    _worldPacket << Unit;
+    _worldPacket.WriteBits(Tier, 3);
+    _worldPacket.FlushBits();
+
+    return &_worldPacket;
+}
+
 WorldPacket const* WorldPackets::Misc::PlayerBound::Write()
 {
     _worldPacket << BinderID;
@@ -346,7 +375,8 @@ WorldPacket const* WorldPackets::Misc::LevelUpInfo::Write()
     for (int32 stat : StatDelta)
         _worldPacket << stat;
 
-    _worldPacket << int32(Cp);
+    _worldPacket << int32(NumNewTalents);
+    _worldPacket << int32(NumNewPvpTalentSlots);
 
     return &_worldPacket;
 }
@@ -376,29 +406,39 @@ WorldPacket const* WorldPackets::Misc::RandomRoll::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Misc::PhaseShift::Write()
+ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Misc::PhaseShiftDataPhase const& phaseShiftDataPhase)
 {
-    _worldPacket << ClientGUID;                                 // CLientGUID
-    _worldPacket << uint32(PhaseShifts.size() ? 0 : 8);         // PhaseShiftFlags
-    _worldPacket << uint32(PhaseShifts.size());                 // PhaseShiftCount
-    _worldPacket << PersonalGUID;                               // PersonalGUID
-    for (uint32 phase : PhaseShifts)
-    {
-        _worldPacket << uint16(1);                              // PhaseFlags
-        _worldPacket << uint16(phase);                          // PhaseID
-    }
+    data << uint16(phaseShiftDataPhase.PhaseFlags);
+    data << uint16(phaseShiftDataPhase.Id);
+    return data;
+}
 
-    _worldPacket << uint32(VisibleMapIDs.size() * 2);           // Active terrain swaps size
-    for (uint32 map : VisibleMapIDs)
-        _worldPacket << uint16(map);                            // Active terrain swap map id
+ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Misc::PhaseShiftData const& phaseShiftData)
+{
+    data << uint32(phaseShiftData.PhaseShiftFlags);
+    data << uint32(phaseShiftData.Phases.size());
+    data << phaseShiftData.PersonalGUID;
+    for (WorldPackets::Misc::PhaseShiftDataPhase const& phaseShiftDataPhase : phaseShiftData.Phases)
+        data << phaseShiftDataPhase;
 
-    _worldPacket << uint32(PreloadMapIDs.size() * 2);           // Inactive terrain swaps size
-    for (uint32 map : PreloadMapIDs)
-        _worldPacket << uint16(map);                            // Inactive terrain swap map id
+    return data;
+}
 
-    _worldPacket << uint32(UiWorldMapAreaIDSwaps.size() * 2);   // UI map swaps size
-    for (uint32 map : UiWorldMapAreaIDSwaps)
-        _worldPacket << uint16(map);                            // UI map id, WorldMapArea.dbc, controls map display
+WorldPacket const* WorldPackets::Misc::PhaseShiftChange::Write()
+{
+    _worldPacket << Client;
+    _worldPacket << Phaseshift;
+    _worldPacket << uint32(VisibleMapIDs.size() * 2);           // size in bytes
+    for (uint16 visibleMapId : VisibleMapIDs)
+        _worldPacket << uint16(visibleMapId);                   // Active terrain swap map id
+
+    _worldPacket << uint32(PreloadMapIDs.size() * 2);           // size in bytes
+    for (uint16 preloadMapId : PreloadMapIDs)
+        _worldPacket << uint16(preloadMapId);                   // Inactive terrain swap map id
+
+    _worldPacket << uint32(UiMapPhaseIDs.size() * 2);           // size in bytes
+    for (uint16 uiMapPhaseId : UiMapPhaseIDs)
+        _worldPacket << uint16(uiMapPhaseId);                   // phase id, controls only map display (visible on all maps)
 
     return &_worldPacket;
 }
@@ -433,6 +473,7 @@ WorldPacket const* WorldPackets::Misc::PlayObjectSound::Write()
     _worldPacket << SourceObjectGUID;
     _worldPacket << TargetObjectGUID;
     _worldPacket << Position;
+    _worldPacket << int32(BroadcastTextID);
 
     return &_worldPacket;
 }
@@ -441,6 +482,7 @@ WorldPacket const* WorldPackets::Misc::PlaySound::Write()
 {
     _worldPacket << int32(SoundKitID);
     _worldPacket << SourceObjectGuid;
+    _worldPacket << int32(BroadcastTextID);
 
     return &_worldPacket;
 }
@@ -458,19 +500,12 @@ void WorldPackets::Misc::FarSight::Read()
     Enable = _worldPacket.ReadBit();
 }
 
-WorldPacket const* WorldPackets::Misc::Dismount::Write()
-{
-    _worldPacket << Guid;
-
-    return &_worldPacket;
-}
-
 void WorldPackets::Misc::SaveCUFProfiles::Read()
 {
     CUFProfiles.resize(_worldPacket.read<uint32>());
     for (std::unique_ptr<CUFProfile>& cufProfile : CUFProfiles)
     {
-        cufProfile = Trinity::make_unique<CUFProfile>();
+        cufProfile = std::make_unique<CUFProfile>();
 
         uint8 strLen = _worldPacket.ReadBits(7);
 
@@ -584,11 +619,11 @@ WorldPacket const* WorldPackets::Misc::AccountHeirloomUpdate::Write()
     _worldPacket << int32(Unk);
 
     // both lists have to have the same size
-    _worldPacket << int32(Heirlooms->size());
-    _worldPacket << int32(Heirlooms->size());
+    _worldPacket << uint32(Heirlooms->size());
+    _worldPacket << uint32(Heirlooms->size());
 
     for (auto const& item : *Heirlooms)
-        _worldPacket << uint32(item.first);
+        _worldPacket << int32(item.first);
 
     for (auto const& flags : *Heirlooms)
         _worldPacket << uint32(flags.second.flags);
@@ -666,4 +701,13 @@ void WorldPackets::Misc::MountSetFavorite::Read()
 void WorldPackets::Misc::CloseInteraction::Read()
 {
     _worldPacket >> SourceGuid;
+}
+
+WorldPacket const* WorldPackets::Misc::StartTimer::Write()
+{
+    _worldPacket << int32(TimeLeft);
+    _worldPacket << int32(TotalTime);
+    _worldPacket << int32(Type);
+
+    return &_worldPacket;
 }

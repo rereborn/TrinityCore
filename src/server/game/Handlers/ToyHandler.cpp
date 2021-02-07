@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -47,7 +47,7 @@ void WorldSession::HandleAddToy(WorldPackets::Toy::AddToy& packet)
         return;
     }
 
-    if (_collectionMgr->AddToy(item->GetEntry(), false))
+    if (_collectionMgr->AddToy(item->GetEntry(), false, false))
         _player->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
 }
 
@@ -63,13 +63,13 @@ void WorldSession::HandleUseToy(WorldPackets::Toy::UseToy& packet)
 
     auto effect = std::find_if(item->Effects.begin(), item->Effects.end(), [&packet](ItemEffectEntry const* effect)
     {
-        return uint32(packet.Cast.SpellID) == effect->SpellID;
+        return packet.Cast.SpellID == effect->SpellID;
     });
 
     if (effect == item->Effects.end())
         return;
 
-    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(packet.Cast.SpellID);
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(packet.Cast.SpellID, DIFFICULTY_NONE);
     if (!spellInfo)
     {
         TC_LOG_ERROR("network", "HandleUseToy: unknown spell id: %u used by Toy Item entry %u", packet.Cast.SpellID, itemId);
@@ -94,4 +94,9 @@ void WorldSession::HandleUseToy(WorldPackets::Toy::UseToy& packet)
     spell->m_misc.Raw.Data[1] = packet.Cast.Misc[1];
     spell->m_castFlagsEx |= CAST_FLAG_EX_USE_TOY_SPELL;
     spell->prepare(&targets);
+}
+
+void WorldSession::HandleToyClearFanfare(WorldPackets::Toy::ToyClearFanfare& toyClearFanfare)
+{
+    _collectionMgr->ToyClearFanfare(toyClearFanfare.ItemID);
 }

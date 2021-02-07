@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -31,7 +31,7 @@ void PlayerTaxi::InitTaxiNodesForLevel(uint32 race, uint32 chrClass, uint8 level
     {
         case CLASS_DEATH_KNIGHT:
         {
-            for (uint8 i = 0; i < TaxiMaskSize; ++i)
+            for (std::size_t i = 0; i < TaxiMaskSize; ++i)
                 m_taximask[i] |= sOldContinentsNodesMask[i] & factionMask[i];
             break;
         }
@@ -99,7 +99,7 @@ void PlayerTaxi::LoadTaxiMask(std::string const &data)
 {
     Tokenizer tokens(data, ' ');
 
-    uint8 index = 0;
+    std::size_t index = 0;
     for (Tokenizer::const_iterator iter = tokens.begin(); index < TaxiMaskSize && iter != tokens.end(); ++iter, ++index)
     {
         // load and set bits only for existing taxi nodes
@@ -111,13 +111,13 @@ void PlayerTaxi::AppendTaximaskTo(WorldPackets::Taxi::ShowTaxiNodes& data, bool 
 {
     if (all)
     {
-        data.CanLandNodes = &sTaxiNodesMask;              // all existed nodes
-        data.CanUseNodes = &sTaxiNodesMask;
+        data.CanLandNodes = sTaxiNodesMask;              // all existed nodes
+        data.CanUseNodes = sTaxiNodesMask;
     }
     else
     {
-        data.CanLandNodes = &m_taximask;                  // known nodes
-        data.CanUseNodes = &m_taximask;
+        data.CanLandNodes = m_taximask;                  // known nodes
+        data.CanUseNodes = m_taximask;
     }
 }
 
@@ -189,7 +189,7 @@ uint32 PlayerTaxi::GetCurrentTaxiPath() const
 
 std::ostringstream& operator<<(std::ostringstream& ss, PlayerTaxi const& taxi)
 {
-    for (uint8 i = 0; i < TaxiMaskSize; ++i)
+    for (std::size_t i = 0; i < TaxiMaskSize; ++i)
         ss << uint32(taxi.m_taximask[i]) << ' ';
     return ss;
 }

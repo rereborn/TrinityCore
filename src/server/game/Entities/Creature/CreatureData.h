@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,13 +21,15 @@
 #include "DBCEnums.h"
 #include "Optional.h"
 #include "SharedDefines.h"
+#include "SpawnData.h"
 #include "UnitDefines.h"
+#include "WorldPacket.h"
 #include <string>
 #include <unordered_map>
-#include <vector>
 #include <cmath>
 
 struct ItemTemplate;
+enum class VisibilityDistanceType : uint8;
 
 enum CreatureDifficultyFlags
 {
@@ -253,7 +255,7 @@ enum CreatureDifficultyFlags7
     CREATURE_DIFFICULTYFLAGS_7_UNK1         = 0x00000008
 };
 
-enum CreatureFlagsExtra
+enum CreatureFlagsExtra : uint32
 {
     CREATURE_FLAG_EXTRA_INSTANCE_BIND        = 0x00000001,       // creature kill bind instance with killer and killer's group
     CREATURE_FLAG_EXTRA_CIVILIAN             = 0x00000002,       // not aggro (ignore faction/reputation hostility)
@@ -264,26 +266,41 @@ enum CreatureFlagsExtra
     CREATURE_FLAG_EXTRA_NO_XP_AT_KILL        = 0x00000040,       // creature kill not provide XP
     CREATURE_FLAG_EXTRA_TRIGGER              = 0x00000080,       // trigger creature
     CREATURE_FLAG_EXTRA_NO_TAUNT             = 0x00000100,       // creature is immune to taunt auras and effect attack me
+    CREATURE_FLAG_EXTRA_NO_MOVE_FLAGS_UPDATE = 0x00000200,       // creature won't update movement flags
+    CREATURE_FLAG_EXTRA_GHOST_VISIBILITY     = 0x00000400,       // creature will be only visible for dead players
+    CREATURE_FLAG_EXTRA_UNUSED_11            = 0x00000800,
+    CREATURE_FLAG_EXTRA_UNUSED_12            = 0x00001000,
+    CREATURE_FLAG_EXTRA_UNUSED_13            = 0x00002000,
     CREATURE_FLAG_EXTRA_WORLDEVENT           = 0x00004000,       // custom flag for world event creatures (left room for merging)
     CREATURE_FLAG_EXTRA_GUARD                = 0x00008000,       // Creature is guard
+    CREATURE_FLAG_EXTRA_UNUSED_16            = 0x00010000,
     CREATURE_FLAG_EXTRA_NO_CRIT              = 0x00020000,       // creature can't do critical strikes
     CREATURE_FLAG_EXTRA_NO_SKILLGAIN         = 0x00040000,       // creature won't increase weapon skills
     CREATURE_FLAG_EXTRA_TAUNT_DIMINISH       = 0x00080000,       // Taunt is a subject to diminishing returns on this creautre
     CREATURE_FLAG_EXTRA_ALL_DIMINISH         = 0x00100000,       // creature is subject to all diminishing returns as player are
     CREATURE_FLAG_EXTRA_NO_PLAYER_DAMAGE_REQ = 0x00200000,       // creature does not need to take player damage for kill credit
+    CREATURE_FLAG_EXTRA_UNUSED_22            = 0x00400000,
+    CREATURE_FLAG_EXTRA_UNUSED_23            = 0x00800000,
+    CREATURE_FLAG_EXTRA_UNUSED_24            = 0x01000000,
+    CREATURE_FLAG_EXTRA_UNUSED_25            = 0x02000000,
+    CREATURE_FLAG_EXTRA_UNUSED_26            = 0x04000000,
+    CREATURE_FLAG_EXTRA_UNUSED_27            = 0x08000000,
     CREATURE_FLAG_EXTRA_DUNGEON_BOSS         = 0x10000000,       // creature is a dungeon boss (SET DYNAMICALLY, DO NOT ADD IN DB)
     CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING   = 0x20000000,       // creature ignore pathfinding
-    CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK   = 0x40000000        // creature is immune to knockback effects
+    CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK   = 0x40000000,       // creature is immune to knockback effects
+    CREATURE_FLAG_EXTRA_UNUSED_31            = 0x80000000,
+
+    // Masks
+    CREATURE_FLAG_EXTRA_UNUSED               = (CREATURE_FLAG_EXTRA_UNUSED_11 | CREATURE_FLAG_EXTRA_UNUSED_12 | CREATURE_FLAG_EXTRA_UNUSED_13 |
+                                                CREATURE_FLAG_EXTRA_UNUSED_16 | CREATURE_FLAG_EXTRA_UNUSED_22 | CREATURE_FLAG_EXTRA_UNUSED_23 |
+                                                CREATURE_FLAG_EXTRA_UNUSED_24 | CREATURE_FLAG_EXTRA_UNUSED_25 | CREATURE_FLAG_EXTRA_UNUSED_26 |
+                                                CREATURE_FLAG_EXTRA_UNUSED_27 | CREATURE_FLAG_EXTRA_UNUSED_31),
+
+    CREATURE_FLAG_EXTRA_DB_ALLOWED           = (0xFFFFFFFF & ~(CREATURE_FLAG_EXTRA_UNUSED | CREATURE_FLAG_EXTRA_DUNGEON_BOSS))
 };
 
-#define CREATURE_FLAG_EXTRA_DB_ALLOWED (CREATURE_FLAG_EXTRA_INSTANCE_BIND | CREATURE_FLAG_EXTRA_CIVILIAN | \
-    CREATURE_FLAG_EXTRA_NO_PARRY | CREATURE_FLAG_EXTRA_NO_PARRY_HASTEN | CREATURE_FLAG_EXTRA_NO_BLOCK | \
-    CREATURE_FLAG_EXTRA_NO_CRUSH | CREATURE_FLAG_EXTRA_NO_XP_AT_KILL | CREATURE_FLAG_EXTRA_TRIGGER | \
-    CREATURE_FLAG_EXTRA_NO_TAUNT | CREATURE_FLAG_EXTRA_WORLDEVENT | CREATURE_FLAG_EXTRA_NO_CRIT | \
-    CREATURE_FLAG_EXTRA_NO_SKILLGAIN | CREATURE_FLAG_EXTRA_TAUNT_DIMINISH | CREATURE_FLAG_EXTRA_ALL_DIMINISH | \
-    CREATURE_FLAG_EXTRA_GUARD | CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING | CREATURE_FLAG_EXTRA_NO_PLAYER_DAMAGE_REQ | CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK)
-
 const uint32 CREATURE_REGEN_INTERVAL = 2 * IN_MILLISECONDS;
+const uint32 PET_FOCUS_REGEN_INTERVAL = 4 * IN_MILLISECONDS;
 const uint32 CREATURE_NOPATH_EVADE_TIME = 5 * IN_MILLISECONDS;
 
 const uint8 MAX_KILL_CREDIT = 2;
@@ -292,11 +309,29 @@ const uint32 MAX_CREATURE_NAMES = 4;
 const uint32 MAX_CREATURE_SPELLS = 8;
 const uint32 MAX_CREATURE_DIFFICULTIES = 3;
 
+struct CreatureModel
+{
+    static CreatureModel const DefaultInvisibleModel;
+    static CreatureModel const DefaultVisibleModel;
+
+    CreatureModel() :
+        CreatureDisplayID(0), DisplayScale(0.0f), Probability(0.0f) { }
+
+    CreatureModel(uint32 creatureDisplayID, float displayScale, float probability) :
+        CreatureDisplayID(creatureDisplayID), DisplayScale(displayScale), Probability(probability) { }
+
+    uint32 CreatureDisplayID;
+    float DisplayScale;
+    float Probability;
+};
+
 struct CreatureLevelScaling
 {
     uint16 MinLevel;
     uint16 MaxLevel;
-    int16 DeltaLevel;
+    int16 DeltaLevelMin;
+    int16 DeltaLevelMax;
+    int32 ContentTuningID;
 };
 
 // from `creature_template` table
@@ -305,10 +340,7 @@ struct TC_GAME_API CreatureTemplate
     uint32  Entry;
     uint32  DifficultyEntry[MAX_CREATURE_DIFFICULTIES];
     uint32  KillCredit[MAX_KILL_CREDIT];
-    uint32  Modelid1;
-    uint32  Modelid2;
-    uint32  Modelid3;
-    uint32  Modelid4;
+    std::vector<CreatureModel> Models;
     std::string  Name;
     std::string FemaleName;
     std::string  SubName;
@@ -317,7 +349,7 @@ struct TC_GAME_API CreatureTemplate
     uint32  GossipMenuId;
     int16   minlevel;
     int16   maxlevel;
-    Optional<CreatureLevelScaling> levelScaling;
+    std::unordered_map<Difficulty, CreatureLevelScaling> scalingStore;
     int32   HealthScalingExpansion;
     uint32  RequiredExpansion;
     uint32  VignetteID;                                     /// @todo Read Vignette.db2
@@ -363,14 +395,22 @@ struct TC_GAME_API CreatureTemplate
     float   ModExperience;
     bool    RacialLeader;
     uint32  movementId;
+    int32   WidgetSetID;
+    int32   WidgetSetUnitConditionID;
     bool    RegenHealth;
     uint32  MechanicImmuneMask;
     uint32  flags_extra;
     uint32  ScriptID;
-    uint32  GetRandomValidModelId() const;
-    uint32  GetFirstValidModelId() const;
-    uint32  GetFirstInvisibleModel() const;
-    uint32  GetFirstVisibleModel() const;
+    WorldPacket QueryData[TOTAL_LOCALES];
+    CreatureModel const* GetModelByIdx(uint32 idx) const;
+    CreatureModel const* GetRandomValidModel() const;
+    CreatureModel const* GetFirstValidModel() const;
+    CreatureModel const* GetModelWithDisplayId(uint32 displayId) const;
+    CreatureModel const* GetFirstInvisibleModel() const;
+    CreatureModel const* GetFirstVisibleModel() const;
+    std::pair<int16, int16> GetMinMaxLevel() const;
+    int32 GetHealthScalingExpansion() const;
+    CreatureLevelScaling const* GetLevelScaling(Difficulty difficulty) const;
 
     // helpers
     SkillType GetRequiredLootSkill() const
@@ -398,6 +438,9 @@ struct TC_GAME_API CreatureTemplate
         // if can tame exotic then can tame any tameable
         return canTameExotic || !IsExotic();
     }
+
+    void InitializeQueryData();
+    WorldPacket BuildQueryData(LocaleConstant loc) const;
 
     static int32 DifficultyIDToDifficultyEntryIndex(uint32 difficulty)
     {
@@ -437,20 +480,11 @@ struct TC_GAME_API CreatureTemplate
 // Defines base stats for creatures (used to calculate HP/mana/armor/attackpower/rangedattackpower/all damage).
 struct TC_GAME_API CreatureBaseStats
 {
-    uint32 BaseHealth[MAX_EXPANSIONS];
     uint32 BaseMana;
-    uint32 BaseArmor;
     uint32 AttackPower;
     uint32 RangedAttackPower;
-    float BaseDamage[MAX_EXPANSIONS];
 
     // Helpers
-
-    uint32 GenerateHealth(CreatureTemplate const* info) const
-    {
-        return uint32(ceil(BaseHealth[info->HealthScalingExpansion] * info->ModHealth * info->ModHealthExtra));
-    }
-
     uint32 GenerateMana(CreatureTemplate const* info) const
     {
         // Mana can be 0.
@@ -458,16 +492,6 @@ struct TC_GAME_API CreatureBaseStats
             return 0;
 
         return uint32(ceil(BaseMana * info->ModMana * info->ModManaExtra));
-    }
-
-    uint32 GenerateArmor(CreatureTemplate const* info) const
-    {
-        return uint32(ceil(BaseArmor * info->ModArmor));
-    }
-
-    float GenerateBaseDamage(CreatureTemplate const* info) const
-    {
-        return BaseDamage[info->HealthScalingExpansion];
     }
 
     static CreatureBaseStats const* GetBaseStats(uint8 level, uint8 unitClass);
@@ -494,37 +518,21 @@ struct EquipmentInfo
 };
 
 // from `creature` table
-struct CreatureData
+struct CreatureData : public SpawnData
 {
-    CreatureData() : id(0), mapid(0), displayid(0), equipmentId(0),
-                     posX(0.0f), posY(0.0f), posZ(0.0f), orientation(0.0f), spawntimesecs(0),
-                     spawndist(0.0f), currentwaypoint(0), curhealth(0), curmana(0), movementType(0),
-                     spawnMask(0), npcflag(0), unit_flags(0), unit_flags2(0), unit_flags3(0), dynamicflags(0),
-                     phaseId(0), phaseGroup(0), ScriptId(0), dbData(true) { }
-    uint32 id;                                              // entry in creature_template
-    uint16 mapid;
-    uint32 displayid;
-    int8 equipmentId;
-    float posX;
-    float posY;
-    float posZ;
-    float orientation;
-    uint32 spawntimesecs;
-    float spawndist;
-    uint32 currentwaypoint;
-    uint32 curhealth;
-    uint32 curmana;
-    uint8 movementType;
-    uint64 spawnMask;
+    CreatureData() : SpawnData(SPAWN_TYPE_CREATURE) { }
+    uint32 displayid = 0;
+    int8 equipmentId = 0;
+    float spawndist = 0.0f;
+    uint32 currentwaypoint = 0;
+    uint32 curhealth = 0;
+    uint32 curmana = 0;
+    uint8 movementType = 0;
     uint64 npcflag;
-    uint32 unit_flags;                                      // enum UnitFlags mask values
-    uint32 unit_flags2;                                     // enum UnitFlags2 mask values
-    uint32 unit_flags3;                                     // enum UnitFlags3 mask values
-    uint32 dynamicflags;
-    uint32 phaseId;
-    uint32 phaseGroup;
-    uint32 ScriptId;
-    bool dbData;
+    uint32 unit_flags = 0;                                  // enum UnitFlags mask values
+    uint32 unit_flags2 = 0;                                 // enum UnitFlags2 mask values
+    uint32 unit_flags3 = 0;                                 // enum UnitFlags3 mask values
+    uint32 dynamicflags = 0;
 };
 
 struct CreatureModelInfo
@@ -559,6 +567,7 @@ struct CreatureAddon
     uint16 movementAnimKit;
     uint16 meleeAnimKit;
     std::vector<uint32> auras;
+    VisibilityDistanceType visibilityDistanceType;
 };
 
 // Vendors

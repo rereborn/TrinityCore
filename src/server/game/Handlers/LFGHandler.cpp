@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "CharacterCache.h"
 #include "DB2Stores.h"
 #include "WorldSession.h"
 #include "Group.h"
@@ -144,13 +145,14 @@ void WorldSession::SendLfgPlayerLockInfo()
 
     // Get Random dungeons that can be done at a certain level and expansion
     uint8 level = GetPlayer()->getLevel();
-    lfg::LfgDungeonSet const& randomDungeons = sLFGMgr->GetRandomAndSeasonalDungeons(level, GetExpansion());
+    uint32 contentTuningReplacementConditionMask = GetPlayer()->m_playerData->CtrOptions->ContentTuningConditionMask;
+    lfg::LfgDungeonSet const& randomDungeons = sLFGMgr->GetRandomAndSeasonalDungeons(level, GetExpansion(), contentTuningReplacementConditionMask);
 
     WorldPackets::LFG::LfgPlayerInfo lfgPlayerInfo;
 
     // Get player locked Dungeons
     for (auto const& lock : sLFGMgr->GetLockedDungeons(_player->GetGUID()))
-        lfgPlayerInfo.BlackList.Slot.emplace_back(lock.first, lock.second.lockStatus, lock.second.requiredItemLevel, lock.second.currentItemLevel);
+        lfgPlayerInfo.BlackList.Slot.emplace_back(lock.first, lock.second.lockStatus, lock.second.requiredItemLevel, lock.second.currentItemLevel, 0);
 
     for (uint32 slot : randomDungeons)
     {
@@ -223,7 +225,7 @@ void WorldSession::SendLfgPartyLockInfo()
         WorldPackets::LFG::LFGBlackList& lfgBlackList = lfgPartyInfo.Player.back();
         lfgBlackList.PlayerGuid = pguid;
         for (auto const& lock : sLFGMgr->GetLockedDungeons(pguid))
-            lfgBlackList.Slot.emplace_back(lock.first, lock.second.lockStatus, lock.second.requiredItemLevel, lock.second.currentItemLevel);
+            lfgBlackList.Slot.emplace_back(lock.first, lock.second.lockStatus, lock.second.requiredItemLevel, lock.second.currentItemLevel, 0);
     }
 
     TC_LOG_DEBUG("lfg", "SMSG_LFG_PARTY_INFO %s", GetPlayerInfo().c_str());
@@ -276,6 +278,7 @@ void WorldSession::SendLfgUpdateStatus(lfg::LfgUpdateData const& updateData, boo
     lfgUpdateStatus.Joined = join;
     lfgUpdateStatus.LfgJoined = updateData.updateType != lfg::LFG_UPDATETYPE_REMOVED_FROM_QUEUE;
     lfgUpdateStatus.Queued = queued;
+    lfgUpdateStatus.QueueMapID = sLFGMgr->GetDungeonMapId(_player->GetGUID());
 
     SendPacket(lfgUpdateStatus.Write());
 }
@@ -308,13 +311,12 @@ void WorldSession::SendLfgRoleCheckUpdate(lfg::LfgRoleCheck const& roleCheck)
     {
         return sLFGMgr->GetLFGDungeonEntry(dungeonId);
     });
-    lfgRoleCheckUpdate.BgQueueID = 0;
     lfgRoleCheckUpdate.GroupFinderActivityID = 0;
     if (!roleCheck.roles.empty())
     {
         // Leader info MUST be sent 1st :S
         uint8 roles = roleCheck.roles.find(roleCheck.leader)->second;
-        lfgRoleCheckUpdate.Members.emplace_back(roleCheck.leader, roles, ASSERT_NOTNULL(sWorld->GetCharacterInfo(roleCheck.leader))->Level, roles > 0);
+        lfgRoleCheckUpdate.Members.emplace_back(roleCheck.leader, roles, ASSERT_NOTNULL(sCharacterCache->GetCharacterCacheByGuid(roleCheck.leader))->Level, roles > 0);
 
         for (lfg::LfgRolesMap::const_iterator it = roleCheck.roles.begin(); it != roleCheck.roles.end(); ++it)
         {
@@ -322,7 +324,7 @@ void WorldSession::SendLfgRoleCheckUpdate(lfg::LfgRoleCheck const& roleCheck)
                 continue;
 
             roles = it->second;
-            lfgRoleCheckUpdate.Members.emplace_back(it->first, roles, ASSERT_NOTNULL(sWorld->GetCharacterInfo(it->first))->Level, roles > 0);
+            lfgRoleCheckUpdate.Members.emplace_back(it->first, roles, ASSERT_NOTNULL(sCharacterCache->GetCharacterCacheByGuid(it->first))->Level, roles > 0);
         }
     }
 
@@ -340,19 +342,21 @@ void WorldSession::SendLfgJoinResult(lfg::LfgJoinResultData const& joinData)
     lfgJoinResult.Result = joinData.result;
     if (joinData.result == lfg::LFG_JOIN_ROLE_CHECK_FAILED)
         lfgJoinResult.ResultDetail = joinData.state;
+    else if (joinData.result == lfg::LFG_JOIN_NO_SLOTS)
+        lfgJoinResult.BlackListNames = joinData.playersMissingRequirement;
 
     for (lfg::LfgLockPartyMap::const_iterator it = joinData.lockmap.begin(); it != joinData.lockmap.end(); ++it)
     {
         lfgJoinResult.BlackList.emplace_back();
-        WorldPackets::LFG::LFGJoinBlackList& blackList = lfgJoinResult.BlackList.back();
-        blackList.Guid = it->first;
+        WorldPackets::LFG::LFGBlackList& blackList = lfgJoinResult.BlackList.back();
+        blackList.PlayerGuid = it->first;
 
         for (lfg::LfgLockMap::const_iterator itr = it->second.begin(); itr != it->second.end(); ++itr)
         {
             TC_LOG_TRACE("lfg", "SendLfgJoinResult:: %s DungeonID: %u Lock status: %u Required itemLevel: %u Current itemLevel: %f",
                 it->first.ToString().c_str(), (itr->first & 0x00FFFFFF), itr->second.lockStatus, itr->second.requiredItemLevel, itr->second.currentItemLevel);
 
-            blackList.Slots.emplace_back(itr->first, itr->second.lockStatus, itr->second.requiredItemLevel, itr->second.currentItemLevel);
+            blackList.Slot.emplace_back(itr->first, itr->second.lockStatus, itr->second.requiredItemLevel, itr->second.currentItemLevel, 0);
         }
     }
 

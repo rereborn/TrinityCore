@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +24,10 @@
 
 namespace Trainer
 {
+    bool Spell::IsCastable() const
+    {
+        return sSpellMgr->AssertSpellInfo(SpellId, DIFFICULTY_NONE)->HasEffect(SPELL_EFFECT_LEARN_SPELL);
+    }
 
     Trainer::Trainer(uint32 id, Type type, std::string greeting, std::vector<Spell> spells) : _id(id), _type(type), _spells(std::move(spells))
     {
@@ -107,7 +111,7 @@ namespace Trainer
         if (state != SpellState::Available)
             return false;
 
-        SpellInfo const* trainerSpellInfo = sSpellMgr->AssertSpellInfo(trainerSpell->SpellId);
+        SpellInfo const* trainerSpellInfo = sSpellMgr->AssertSpellInfo(trainerSpell->SpellId, DIFFICULTY_NONE);
         if (trainerSpellInfo->IsPrimaryProfessionFirstRank() && !player->GetFreePrimaryProfessionPoints())
             return false;
 
@@ -136,14 +140,20 @@ namespace Trainer
             return SpellState::Unavailable;
 
         // check ranks
-        if (uint32 previousRankSpellId = sSpellMgr->GetPrevSpellInChain(trainerSpell->LearnedSpellId))
-            if (!player->HasSpell(previousRankSpellId))
-                return SpellState::Unavailable;
+        bool hasLearnSpellEffect = false;
+        bool knowsAllLearnedSpells = true;
+        for (SpellEffectInfo const* spellEffect : sSpellMgr->AssertSpellInfo(trainerSpell->SpellId, DIFFICULTY_NONE)->GetEffects())
+        {
+            if (!spellEffect || !spellEffect->IsEffect(SPELL_EFFECT_LEARN_SPELL))
+                continue;
 
-        // check additional spell requirement
-        for (auto const& requirePair : sSpellMgr->GetSpellsRequiredForSpellBounds(trainerSpell->SpellId))
-            if (!player->HasSpell(requirePair.second))
-                return SpellState::Unavailable;
+            hasLearnSpellEffect = true;
+            if (!player->HasSpell(spellEffect->TriggerSpell))
+                knowsAllLearnedSpells = false;
+        }
+
+        if (hasLearnSpellEffect && knowsAllLearnedSpells)
+            return SpellState::Known;
 
         return SpellState::Available;
     }
