@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -175,10 +175,10 @@ public:
                 return;
 
             _step = step;
+            me->SetReactState(REACT_PASSIVE);
             me->SetHomePosition(hadronoxStep[step]);
             me->GetMotionMaster()->Clear();
             me->AttackStop();
-            SetCombatMovement(false);
             me->GetMotionMaster()->MovePoint(0, hadronoxStep[step]);
         }
 
@@ -197,8 +197,7 @@ public:
         {
             if (type != POINT_MOTION_TYPE)
                 return;
-            SetCombatMovement(true);
-            AttackStart(me->GetVictim());
+            me->SetReactState(REACT_AGGRESSIVE);
             if (_step < NUM_STEPS-1)
                 return;
             DoCastAOE(SPELL_WEB_FRONT_DOORS);
@@ -219,7 +218,7 @@ public:
         bool CanAIAttack(Unit const* target) const override
         {
             // Prevent Hadronox from going too far from her current home position
-            if (!target->IsControlledByPlayer() && target->GetDistance(me->GetHomePosition()) > 20.0f)
+            if (!target->IsControlledByPlayer() && target->GetDistance(me->GetHomePosition()) > 70.0f)
                 return false;
             return BossAI::CanAIAttack(target);
         }
@@ -230,7 +229,7 @@ public:
             events.ScheduleEvent(EVENT_ACID_CLOUD, randtime(Seconds(7), Seconds(13)));
             events.ScheduleEvent(EVENT_WEB_GRAB, randtime(Seconds(13), Seconds(19)));
             events.ScheduleEvent(EVENT_PIERCE_ARMOR, randtime(Seconds(4), Seconds(7)));
-            events.ScheduleEvent(EVENT_PLAYER_CHECK, Seconds(1));
+            events.ScheduleEvent(EVENT_PLAYER_CHECK, 1s);
             me->setActive(true);
         }
 
@@ -262,8 +261,8 @@ public:
             me->GetCreatureListWithEntryInGrid(triggers, NPC_WORLDTRIGGER_LARGE);
             for (Creature* trigger : triggers)
                 if (trigger->HasAura(SPELL_SUMMON_CHAMPION_PERIODIC) || trigger->HasAura(SPELL_WEB_FRONT_DOORS) || trigger->HasAura(SPELL_WEB_SIDE_DOORS))
-                    _DespawnAtEvade(25, trigger);
-            _DespawnAtEvade(25);
+                    _DespawnAtEvade(25s, trigger);
+            _DespawnAtEvade(25s);
             summons.DespawnAll();
             for (ObjectGuid gNerubian : _anubar)
                 if (Creature* nerubian = ObjectAccessor::GetCreature(*me, gNerubian))
@@ -278,6 +277,7 @@ public:
         void InitializeAI() override
         {
             BossAI::InitializeAI();
+            me->SetReactState(REACT_AGGRESSIVE);
             me->SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, 9.0f);
             me->SetFloatValue(UNIT_FIELD_COMBATREACH, 9.0f);
             _enteredCombat = false;
@@ -312,7 +312,7 @@ public:
                         events.Repeat(randtime(Seconds(7), Seconds(9)));
                         break;
                     case EVENT_ACID_CLOUD:
-                        if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f))
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 100.0f))
                             DoCast(target, SPELL_ACID_CLOUD);
                         events.Repeat(randtime(Seconds(16), Seconds(23)));
                         break;
@@ -360,7 +360,7 @@ public:
         // Safeguard to prevent Hadronox dying to NPCs
         void DamageTaken(Unit* who, uint32& damage) override
         {
-            if (!who->IsControlledByPlayer() && me->HealthBelowPct(70))
+            if ((!who || !who->IsControlledByPlayer()) && me->HealthBelowPct(70))
             {
                 if (me->HealthBelowPctDamaged(5, damage))
                     damage = 0;
@@ -769,7 +769,7 @@ struct npc_hadronox_foeAI : public ScriptedAI
                         me->GetMotionMaster()->MovePoint(MOVE_DOWNSTAIRS_2, downstairsMoves2[_mySpawn]);
                         break;
                     }
-                    // intentional missing break
+                    [[fallthrough]];
                 case MOVE_HADRONOX:
                 case MOVE_HADRONOX_REAL:
                 {
@@ -988,6 +988,7 @@ class spell_hadronox_periodic_summon_template_AuraScript : public AuraScript
         uint32 _bottomSpellId;
 };
 
+// 53035 - Summon Anub'ar Champion Periodic
 class spell_hadronox_periodic_summon_champion : public SpellScriptLoader
 {
     public:
@@ -1005,6 +1006,7 @@ class spell_hadronox_periodic_summon_champion : public SpellScriptLoader
         }
 };
 
+// 53037 - Summon Anub'ar Crypt Fiend Periodic
 class spell_hadronox_periodic_summon_crypt_fiend : public SpellScriptLoader
 {
     public:
@@ -1022,6 +1024,7 @@ class spell_hadronox_periodic_summon_crypt_fiend : public SpellScriptLoader
         }
 };
 
+// 53036 - Summon Anub'ar Necromancer Periodic
 class spell_hadronox_periodic_summon_necromancer : public SpellScriptLoader
 {
     public:
@@ -1039,6 +1042,7 @@ class spell_hadronox_periodic_summon_necromancer : public SpellScriptLoader
         }
 };
 
+// 53030, 59417 - Leech Poison
 class spell_hadronox_leeching_poison : public SpellScriptLoader
 {
     public:
@@ -1077,6 +1081,8 @@ class spell_hadronox_leeching_poison : public SpellScriptLoader
     }
 };
 
+// 53177 - Web Front Doors
+// 53185 - Web Side Door
 class spell_hadronox_web_doors : public SpellScriptLoader
 {
     public:

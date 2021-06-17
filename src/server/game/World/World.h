@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,10 +23,10 @@
 #define __WORLD_H
 
 #include "Common.h"
+#include "AsyncCallbackProcessor.h"
 #include "DatabaseEnvFwd.h"
 #include "LockedQueue.h"
 #include "ObjectGuid.h"
-#include "QueryCallbackProcessor.h"
 #include "SharedDefines.h"
 #include "Timer.h"
 
@@ -71,7 +70,6 @@ enum WorldTimers
 {
     WUPDATE_AUCTIONS,
     WUPDATE_AUCTIONS_PENDING,
-    WUPDATE_WEATHERS,
     WUPDATE_UPTIME,
     WUPDATE_CORPSES,
     WUPDATE_EVENTS,
@@ -83,6 +81,7 @@ enum WorldTimers
     WUPDATE_PINGDB,
     WUPDATE_CHECK_FILECHANGES,
     WUPDATE_WHO_LIST,
+    WUPDATE_CHANNEL_SAVE,
     WUPDATE_COUNT
 };
 
@@ -109,7 +108,6 @@ enum WorldBoolConfigs
     CONFIG_GM_LOWER_SECURITY,
     CONFIG_SKILL_PROSPECTING,
     CONFIG_SKILL_MILLING,
-    CONFIG_SAVE_RESPAWN_TIME_IMMEDIATELY,
     CONFIG_WEATHER,
     CONFIG_ALWAYS_MAX_SKILL_FOR_LEVEL,
     CONFIG_QUEST_IGNORE_RAID,
@@ -157,10 +155,10 @@ enum WorldBoolConfigs
     CONFIG_WARDEN_ENABLED,
     CONFIG_ENABLE_MMAPS,
     CONFIG_WINTERGRASP_ENABLE,
-    CONFIG_UI_QUESTLEVELS_IN_DIALOGS,     // Should we add quest levels to the title in the NPC dialogs?
     CONFIG_EVENT_ANNOUNCE,
     CONFIG_STATS_LIMITS_ENABLE,
     CONFIG_INSTANCES_RESET_ANNOUNCE,
+    CONFIG_SET_SHAPASSHASH,
     CONFIG_IP_BASED_ACTION_LOGGING,
     CONFIG_ALLOW_TRACK_BOTH_RESOURCES,
     CONFIG_CALCULATE_CREATURE_ZONE_AREA_DATA,
@@ -179,6 +177,7 @@ enum WorldBoolConfigs
     CONFIG_CACHE_DATA_QUERIES,
     CONFIG_CHECK_GOBJECT_LOS,
     CONFIG_RESPAWN_DYNAMIC_ESCORTNPC,
+    CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID,
     BOOL_CONFIG_VALUE_COUNT
 };
 
@@ -248,6 +247,7 @@ enum WorldIntConfigs
     CONFIG_INSTANCE_RESET_TIME_HOUR,
     CONFIG_INSTANCE_UNLOAD_DELAY,
     CONFIG_DAILY_QUEST_RESET_TIME_HOUR,
+    CONFIG_WEEKLY_QUEST_RESET_TIME_WDAY,
     CONFIG_MAX_PRIMARY_TRADE_SKILL,
     CONFIG_MIN_PETITION_SIGNS,
     CONFIG_MIN_QUEST_SCALED_XP_RATIO,
@@ -313,6 +313,7 @@ enum WorldIntConfigs
     CONFIG_BATTLEGROUND_REPORT_AFK,
     CONFIG_ARENA_MAX_RATING_DIFFERENCE,
     CONFIG_ARENA_RATING_DISCARD_TIMER,
+    CONFIG_ARENA_PREV_OPPONENTS_DISCARD_TIMER,
     CONFIG_ARENA_RATED_UPDATE_TIMER,
     CONFIG_ARENA_AUTO_DISTRIBUTE_INTERVAL_DAYS,
     CONFIG_ARENA_SEASON_ID,
@@ -334,6 +335,7 @@ enum WorldIntConfigs
     CONFIG_GUILD_BANK_EVENT_LOG_COUNT,
     CONFIG_MIN_LEVEL_STAT_SAVE,
     CONFIG_RANDOM_BG_RESET_HOUR,
+    CONFIG_CALENDAR_DELETE_OLD_EVENTS_HOUR,
     CONFIG_GUILD_RESET_HOUR,
     CONFIG_CHARDELETE_KEEP_DAYS,
     CONFIG_CHARDELETE_METHOD,
@@ -344,15 +346,18 @@ enum WorldIntConfigs
     CONFIG_MAX_RESULTS_LOOKUP_COMMANDS,
     CONFIG_DB_PING_INTERVAL,
     CONFIG_PRESERVE_CUSTOM_CHANNEL_DURATION,
+    CONFIG_PRESERVE_CUSTOM_CHANNEL_INTERVAL,
     CONFIG_PERSISTENT_CHARACTER_CLEAN_FLAGS,
     CONFIG_LFG_OPTIONSMASK,
     CONFIG_MAX_INSTANCES_PER_HOUR,
+    CONFIG_XP_BOOST_DAYMASK,
     CONFIG_WARDEN_CLIENT_RESPONSE_DELAY,
     CONFIG_WARDEN_CLIENT_CHECK_HOLDOFF,
     CONFIG_WARDEN_CLIENT_FAIL_ACTION,
     CONFIG_WARDEN_CLIENT_BAN_DURATION,
-    CONFIG_WARDEN_NUM_MEM_CHECKS,
-    CONFIG_WARDEN_NUM_OTHER_CHECKS,
+    CONFIG_WARDEN_NUM_INJECT_CHECKS,
+    CONFIG_WARDEN_NUM_LUA_CHECKS,
+    CONFIG_WARDEN_NUM_CLIENT_MOD_CHECKS,
     CONFIG_WINTERGRASP_PLR_MAX,
     CONFIG_WINTERGRASP_PLR_MIN,
     CONFIG_WINTERGRASP_PLR_MIN_LVL,
@@ -391,6 +396,7 @@ enum WorldIntConfigs
     CONFIG_RESPAWN_DYNAMICMINIMUM_GAMEOBJECT,
     CONFIG_RESPAWN_GUIDWARNING_FREQUENCY,
     CONFIG_SOCKET_TIMEOUTTIME_ACTIVE,
+    CONFIG_PENDING_MOVE_CHANGES_TIMEOUT,
     INT_CONFIG_VALUE_COUNT
 };
 
@@ -459,6 +465,7 @@ enum Rates
     RATE_DURABILITY_LOSS_ABSORB,
     RATE_DURABILITY_LOSS_BLOCK,
     RATE_MOVESPEED,
+    RATE_XP_BOOST,
     RATE_MONEY_QUEST,
     RATE_MONEY_MAX_LEVEL_QUEST,
     MAX_RATES
@@ -520,21 +527,11 @@ enum RealmZone
     REALM_ZONE_CN5_8         = 37                           // basic-Latin at create, any at login
 };
 
-enum WorldStates
-{
-    WS_ARENA_DISTRIBUTION_TIME  = 20001,                     // Next arena distribution time
-    WS_WEEKLY_QUEST_RESET_TIME  = 20002,                     // Next weekly reset time
-    WS_BG_DAILY_RESET_TIME      = 20003,                     // Next daily BG reset time
-    WS_CLEANING_FLAGS           = 20004,                     // Cleaning Flags
-    WS_GUILD_DAILY_RESET_TIME   = 20006,                     // Next guild cap reset time
-    WS_MONTHLY_QUEST_RESET_TIME = 20007,                     // Next monthly reset time
-};
-
 /// Storage class for commands issued for delayed execution
 struct TC_GAME_API CliCommandHolder
 {
-    typedef void(*Print)(void*, char const*);
-    typedef void(*CommandFinished)(void*, bool success);
+    using Print = void(*)(void*, std::string_view);
+    using CommandFinished = void(*)(void*, bool success);
 
     void* m_callbackArg;
     char* m_command;
@@ -653,10 +650,10 @@ class TC_GAME_API World
         void SendWorldText(uint32 string_id, ...);
         void SendGlobalText(char const* text, WorldSession* self);
         void SendGMText(uint32 string_id, ...);
-        void SendServerMessage(ServerMessageType type, const char *text = "", Player* player = nullptr);
-        void SendGlobalMessage(WorldPacket* packet, WorldSession* self = nullptr, uint32 team = 0);
-        void SendGlobalGMMessage(WorldPacket* packet, WorldSession* self = nullptr, uint32 team = 0);
-        bool SendZoneMessage(uint32 zone, WorldPacket* packet, WorldSession* self = nullptr, uint32 team = 0);
+        void SendServerMessage(ServerMessageType messageID, std::string stringParam = "", Player* player = nullptr);
+        void SendGlobalMessage(WorldPacket const* packet, WorldSession* self = nullptr, uint32 team = 0);
+        void SendGlobalGMMessage(WorldPacket const* packet, WorldSession* self = nullptr, uint32 team = 0);
+        bool SendZoneMessage(uint32 zone, WorldPacket const* packet, WorldSession* self = nullptr, uint32 team = 0);
         void SendZoneText(uint32 zone, const char *text, WorldSession* self = nullptr, uint32 team = 0);
 
         /// Are we in the middle of a shutdown?
@@ -735,11 +732,13 @@ class TC_GAME_API World
         // for max speed access
         static float GetMaxVisibleDistanceOnContinents()    { return m_MaxVisibleDistanceOnContinents; }
         static float GetMaxVisibleDistanceInInstances()     { return m_MaxVisibleDistanceInInstances;  }
-        static float GetMaxVisibleDistanceInBGArenas()      { return m_MaxVisibleDistanceInBGArenas;   }
+        static float GetMaxVisibleDistanceInBG()            { return m_MaxVisibleDistanceInBG;         }
+        static float GetMaxVisibleDistanceInArenas()        { return m_MaxVisibleDistanceInArenas;     }
 
         static int32 GetVisibilityNotifyPeriodOnContinents(){ return m_visibility_notify_periodOnContinents; }
         static int32 GetVisibilityNotifyPeriodInInstances() { return m_visibility_notify_periodInInstances;  }
-        static int32 GetVisibilityNotifyPeriodInBGArenas()  { return m_visibility_notify_periodInBGArenas;   }
+        static int32 GetVisibilityNotifyPeriodInBG()        { return m_visibility_notify_periodInBG;         }
+        static int32 GetVisibilityNotifyPeriodInArenas()    { return m_visibility_notify_periodInArenas;     }
 
         void ProcessCliCommands();
         void QueueCliCommand(CliCommandHolder* commandHolder) { cliCmdQueue.add(commandHolder); }
@@ -759,8 +758,8 @@ class TC_GAME_API World
         void UpdateAreaDependentAuras();
 
         uint32 GetCleaningFlags() const { return m_CleaningFlags; }
-        void   SetCleaningFlags(uint32 flags) { m_CleaningFlags = flags; }
-        void   ResetEventSeasonalQuests(uint16 event_id);
+        void SetCleaningFlags(uint32 flags) { m_CleaningFlags = flags; }
+        void ResetEventSeasonalQuests(uint16 event_id);
 
         void ReloadRBAC();
 
@@ -776,15 +775,17 @@ class TC_GAME_API World
         // callback for UpdateRealmCharacters
         void _UpdateRealmCharCount(PreparedQueryResult resultCharCount);
 
-        void InitDailyQuestResetTime(bool loading = true);
-        void InitWeeklyQuestResetTime();
-        void InitMonthlyQuestResetTime();
-        void InitRandomBGResetTime();
-        void InitGuildResetTime();
+        void InitQuestResetTimes();
+        void CheckQuestResetTimes();
         void ResetDailyQuests();
         void ResetWeeklyQuests();
         void ResetMonthlyQuests();
+
+        void InitRandomBGResetTime();
+        void InitCalendarOldEventsDeletionTime();
+        void InitGuildResetTime();
         void ResetRandomBG();
+        void CalendarDeleteOldEvents();
         void ResetGuildCap();
     private:
         World();
@@ -830,11 +831,13 @@ class TC_GAME_API World
         // for max speed access
         static float m_MaxVisibleDistanceOnContinents;
         static float m_MaxVisibleDistanceInInstances;
-        static float m_MaxVisibleDistanceInBGArenas;
+        static float m_MaxVisibleDistanceInBG;
+        static float m_MaxVisibleDistanceInArenas;
 
         static int32 m_visibility_notify_periodOnContinents;
         static int32 m_visibility_notify_periodInInstances;
-        static int32 m_visibility_notify_periodInBGArenas;
+        static int32 m_visibility_notify_periodInBG;
+        static int32 m_visibility_notify_periodInArenas;
 
         // CLI command holder to be thread safe
         LockedQueue<CliCommandHolder*> cliCmdQueue;
@@ -844,6 +847,7 @@ class TC_GAME_API World
         time_t m_NextWeeklyQuestReset;
         time_t m_NextMonthlyQuestReset;
         time_t m_NextRandomBGReset;
+        time_t m_NextCalendarOldEventsDeletionTime;
         time_t m_NextGuildReset;
 
         //Player Queue
@@ -878,6 +882,8 @@ class TC_GAME_API World
         bool _guidAlert;
         uint32 _warnDiff;
         time_t _warnShutdownTime;
+
+    friend class debug_commandscript;
 };
 
 TC_GAME_API extern Realm realm;

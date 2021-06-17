@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -29,7 +29,9 @@
 #include <cmath>
 
 struct ItemTemplate;
+enum class VisibilityDistanceType : uint8;
 
+// EnumUtils: DESCRIBE THIS
 enum CreatureFlagsExtra : uint32
 {
     CREATURE_FLAG_EXTRA_INSTANCE_BIND        = 0x00000001,       // creature kill bind instance with killer and killer's group
@@ -37,22 +39,22 @@ enum CreatureFlagsExtra : uint32
     CREATURE_FLAG_EXTRA_NO_PARRY             = 0x00000004,       // creature can't parry
     CREATURE_FLAG_EXTRA_NO_PARRY_HASTEN      = 0x00000008,       // creature can't counter-attack at parry
     CREATURE_FLAG_EXTRA_NO_BLOCK             = 0x00000010,       // creature can't block
-    CREATURE_FLAG_EXTRA_NO_CRUSH             = 0x00000020,       // creature can't do crush attacks
-    CREATURE_FLAG_EXTRA_NO_XP_AT_KILL        = 0x00000040,       // creature kill not provide XP
+    CREATURE_FLAG_EXTRA_NO_CRUSHING_BLOWS    = 0x00000020,       // creature can't do crush attacks
+    CREATURE_FLAG_EXTRA_NO_XP                = 0x00000040,       // creature kill does not provide XP
     CREATURE_FLAG_EXTRA_TRIGGER              = 0x00000080,       // trigger creature
-    CREATURE_FLAG_EXTRA_NO_TAUNT             = 0x00000100,       // creature is immune to taunt auras and effect attack me
+    CREATURE_FLAG_EXTRA_NO_TAUNT             = 0x00000100,       // creature is immune to taunt auras and 'attack me' effects
     CREATURE_FLAG_EXTRA_NO_MOVE_FLAGS_UPDATE = 0x00000200,       // creature won't update movement flags
-    CREATURE_FLAG_EXTRA_GHOST_VISIBILITY     = 0x00000400,       // creature will be only visible for dead players
+    CREATURE_FLAG_EXTRA_GHOST_VISIBILITY     = 0x00000400,       // creature will only be visible to dead players
     CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK   = 0x00000800,       // creature will use offhand attacks
-    CREATURE_FLAG_EXTRA_UNUSED_12            = 0x00001000,
-    CREATURE_FLAG_EXTRA_UNUSED_13            = 0x00002000,
+    CREATURE_FLAG_EXTRA_NO_SELL_VENDOR       = 0x00001000,       // players can't sell items to this vendor
+    CREATURE_FLAG_EXTRA_IGNORE_COMBAT        = 0x00002000,       // creature is not allowed to enter combat
     CREATURE_FLAG_EXTRA_WORLDEVENT           = 0x00004000,       // custom flag for world event creatures (left room for merging)
     CREATURE_FLAG_EXTRA_GUARD                = 0x00008000,       // Creature is guard
-    CREATURE_FLAG_EXTRA_UNUSED_16            = 0x00010000,
+    CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH   = 0x00010000,       // creature ignores feign death
     CREATURE_FLAG_EXTRA_NO_CRIT              = 0x00020000,       // creature can't do critical strikes
-    CREATURE_FLAG_EXTRA_NO_SKILLGAIN         = 0x00040000,       // creature won't increase weapon skills
-    CREATURE_FLAG_EXTRA_TAUNT_DIMINISH       = 0x00080000,       // Taunt is a subject to diminishing returns on this creautre
-    CREATURE_FLAG_EXTRA_ALL_DIMINISH         = 0x00100000,       // creature is subject to all diminishing returns as player are
+    CREATURE_FLAG_EXTRA_NO_SKILL_GAINS       = 0x00040000,       // creature won't increase weapon skills
+    CREATURE_FLAG_EXTRA_OBEYS_TAUNT_DIMINISHING_RETURNS = 0x00080000,       // Taunt is subject to diminishing returns on this creature
+    CREATURE_FLAG_EXTRA_ALL_DIMINISH         = 0x00100000,       // creature is subject to all diminishing returns as players are
     CREATURE_FLAG_EXTRA_NO_PLAYER_DAMAGE_REQ = 0x00200000,       // creature does not need to take player damage for kill credit
     CREATURE_FLAG_EXTRA_UNUSED_22            = 0x00400000,
     CREATURE_FLAG_EXTRA_UNUSED_23            = 0x00800000,
@@ -66,12 +68,72 @@ enum CreatureFlagsExtra : uint32
     CREATURE_FLAG_EXTRA_UNUSED_31            = 0x80000000,
 
     // Masks
-    CREATURE_FLAG_EXTRA_UNUSED               = (CREATURE_FLAG_EXTRA_UNUSED_12 | CREATURE_FLAG_EXTRA_UNUSED_13 | CREATURE_FLAG_EXTRA_UNUSED_16 |
-                                                CREATURE_FLAG_EXTRA_UNUSED_22 | CREATURE_FLAG_EXTRA_UNUSED_23 | CREATURE_FLAG_EXTRA_UNUSED_24 |
-                                                CREATURE_FLAG_EXTRA_UNUSED_25 | CREATURE_FLAG_EXTRA_UNUSED_26 | CREATURE_FLAG_EXTRA_UNUSED_27 |
-                                                CREATURE_FLAG_EXTRA_UNUSED_31),
+    CREATURE_FLAG_EXTRA_UNUSED               = (CREATURE_FLAG_EXTRA_UNUSED_22 |
+                                                CREATURE_FLAG_EXTRA_UNUSED_23 | CREATURE_FLAG_EXTRA_UNUSED_24 | CREATURE_FLAG_EXTRA_UNUSED_25 |
+                                                CREATURE_FLAG_EXTRA_UNUSED_26 | CREATURE_FLAG_EXTRA_UNUSED_27 | CREATURE_FLAG_EXTRA_UNUSED_31), // SKIP
 
-    CREATURE_FLAG_EXTRA_DB_ALLOWED           = (0xFFFFFFFF & ~(CREATURE_FLAG_EXTRA_UNUSED | CREATURE_FLAG_EXTRA_DUNGEON_BOSS))
+    CREATURE_FLAG_EXTRA_DB_ALLOWED           = (0xFFFFFFFF & ~(CREATURE_FLAG_EXTRA_UNUSED | CREATURE_FLAG_EXTRA_DUNGEON_BOSS)) // SKIP
+};
+
+enum class CreatureGroundMovementType : uint8
+{
+    None,
+    Run,
+    Hover,
+
+    Max
+};
+
+enum class CreatureFlightMovementType : uint8
+{
+    None,
+    DisableGravity,
+    CanFly,
+
+    Max
+};
+
+enum class CreatureChaseMovementType : uint8
+{
+    Run,
+    CanWalk,
+    AlwaysWalk,
+
+    Max
+};
+
+enum class CreatureRandomMovementType : uint8
+{
+    Walk,
+    CanRun,
+    AlwaysRun,
+
+    Max
+};
+
+struct TC_GAME_API CreatureMovementData
+{
+    CreatureMovementData();
+
+    CreatureGroundMovementType Ground;
+    CreatureFlightMovementType Flight;
+    bool Swim;
+    bool Rooted;
+    CreatureChaseMovementType Chase;
+    CreatureRandomMovementType Random;
+    uint32 InteractionPauseTimer;
+
+    bool IsGroundAllowed() const { return Ground != CreatureGroundMovementType::None; }
+    bool IsSwimAllowed() const { return Swim; }
+    bool IsFlightAllowed() const { return Flight != CreatureFlightMovementType::None; }
+    bool IsRooted() const { return Rooted; }
+
+    CreatureChaseMovementType GetChase() const { return Chase; }
+    CreatureRandomMovementType GetRandom() const { return Random; }
+
+    uint32 GetInteractionPauseTimer() const { return InteractionPauseTimer; }
+
+    std::string ToString() const;
 };
 
 static const uint32 CREATURE_REGEN_INTERVAL = 2 * IN_MILLISECONDS;
@@ -116,10 +178,6 @@ struct TC_GAME_API CreatureTemplate
     uint32  unit_flags2;                                    // enum UnitFlags2 mask values
     uint32  dynamicflags;
     CreatureFamily  family;                                 // enum CreatureFamily values (optional)
-    uint32  trainer_type;
-    uint32  trainer_spell;
-    uint32  trainer_class;
-    uint32  trainer_race;
     uint32  type;                                           // enum CreatureType values
     uint32  type_flags;                                     // enum CreatureTypeFlags mask values
     uint32  lootid;
@@ -133,7 +191,7 @@ struct TC_GAME_API CreatureTemplate
     uint32  maxgold;
     std::string AIName;
     uint32  MovementType;
-    uint32  InhabitType;
+    CreatureMovementData Movement;
     float   HoverHeight;
     float   ModHealth;
     float   ModMana;
@@ -156,11 +214,11 @@ struct TC_GAME_API CreatureTemplate
     // helpers
     SkillType GetRequiredLootSkill() const
     {
-        if (type_flags & CREATURE_TYPE_FLAG_HERB_SKINNING_SKILL)
+        if (type_flags & CREATURE_TYPE_FLAG_SKIN_WITH_HERBALISM)
             return SKILL_HERBALISM;
-        else if (type_flags & CREATURE_TYPE_FLAG_MINING_SKINNING_SKILL)
+        else if (type_flags & CREATURE_TYPE_FLAG_SKIN_WITH_MINING)
             return SKILL_MINING;
-        else if (type_flags & CREATURE_TYPE_FLAG_ENGINEERING_SKINNING_SKILL)
+        else if (type_flags & CREATURE_TYPE_FLAG_SKIN_WITH_ENGINEERING)
             return SKILL_ENGINEERING;
         else
             return SKILL_SKINNING;                          // normal case
@@ -168,12 +226,12 @@ struct TC_GAME_API CreatureTemplate
 
     bool IsExotic() const
     {
-        return (type_flags & CREATURE_TYPE_FLAG_EXOTIC_PET) != 0;
+        return (type_flags & CREATURE_TYPE_FLAG_TAMEABLE_EXOTIC) != 0;
     }
 
     bool IsTameable(bool canTameExotic) const
     {
-        if (type != CREATURE_TYPE_BEAST || family == CREATURE_FAMILY_NONE || (type_flags & CREATURE_TYPE_FLAG_TAMEABLE_PET) == 0)
+        if (type != CREATURE_TYPE_BEAST || family == CREATURE_FAMILY_NONE || (type_flags & CREATURE_TYPE_FLAG_TAMEABLE) == 0)
             return false;
 
         // if can tame exotic then can tame any tameable
@@ -242,7 +300,7 @@ struct CreatureData : public SpawnData
     CreatureData() : SpawnData(SPAWN_TYPE_CREATURE) { }
     uint32 displayid = 0;
     int8 equipmentId = 0;
-    float spawndist = 0.0f;
+    float wander_distance = 0.0f;
     uint32 currentwaypoint = 0;
     uint32 curhealth = 0;
     uint32 curmana = 0;
@@ -281,6 +339,7 @@ struct CreatureAddon
     uint32 bytes2;
     uint32 emote;
     std::vector<uint32> auras;
+    VisibilityDistanceType visibilityDistanceType;
 };
 
 // Vendors
@@ -321,38 +380,6 @@ struct VendorItemData
     {
         m_items.clear();
     }
-};
-
-struct TrainerSpell
-{
-    TrainerSpell() : SpellID(0), MoneyCost(0), ReqSkillLine(0), ReqSkillRank(0), ReqLevel(0)
-    {
-        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
-            ReqAbility[i] = 0;
-    }
-
-    uint32 SpellID;
-    uint32 MoneyCost;
-    uint32 ReqSkillLine;
-    uint32 ReqSkillRank;
-    uint32 ReqLevel;
-    uint32 ReqAbility[3];
-
-    // helpers
-    bool IsCastable() const { return ReqAbility[0] != SpellID; }
-};
-
-typedef std::unordered_map<uint32 /*spellid*/, TrainerSpell> TrainerSpellMap;
-
-struct TC_GAME_API TrainerSpellData
-{
-    TrainerSpellData() : trainerType(0) { }
-    ~TrainerSpellData() { spellList.clear(); }
-
-    TrainerSpellMap spellList;
-    uint32 trainerType;                                     // trainer type based at trainer spells, can be different from creature_template value.
-                                                            // req. for correct show non-prof. trainers like weaponmaster, allowed values 0 and 2.
-    TrainerSpell const* Find(uint32 spell_id) const;
 };
 
 #endif // CreatureData_h__

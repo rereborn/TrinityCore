@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -118,7 +118,7 @@ struct boss_coren_direbrew : public BossAI
 {
     boss_coren_direbrew(Creature* creature) : BossAI(creature, DATA_COREN) { }
 
-    bool GossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
+    bool OnGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
     {
         if (menuId != GOSSIP_ID)
             return false;
@@ -169,13 +169,13 @@ struct boss_coren_direbrew : public BossAI
             events.SetPhase(PHASE_ONE);
             me->SetImmuneToPC(false);
             me->SetFaction(FACTION_GOBLIN_DARK_IRON_BAR_PATRON);
-            me->SetInCombatWithZone();
+            DoZoneInCombat();
 
             EntryCheckPredicate pred(NPC_ANTAGONIST);
             summons.DoAction(ACTION_ANTAGONIST_HOSTILE, pred);
 
-            events.ScheduleEvent(EVENT_SUMMON_MOLE_MACHINE, Seconds(15));
-            events.ScheduleEvent(EVENT_DIREBREW_DISARM, Seconds(20));
+            events.ScheduleEvent(EVENT_SUMMON_MOLE_MACHINE, 15s);
+            events.ScheduleEvent(EVENT_DIREBREW_DISARM, 20s);
         }
     }
 
@@ -196,9 +196,9 @@ struct boss_coren_direbrew : public BossAI
     void SummonedCreatureDies(Creature* summon, Unit* /*killer*/) override
     {
         if (summon->GetEntry() == NPC_ILSA_DIREBREW)
-            events.ScheduleEvent(EVENT_RESPAWN_ILSA, Seconds(1));
+            events.ScheduleEvent(EVENT_RESPAWN_ILSA, 1s);
         else if (summon->GetEntry() == NPC_URSULA_DIREBREW)
-            events.ScheduleEvent(EVENT_RESPAWN_URSULA, Seconds(1));
+            events.ScheduleEvent(EVENT_RESPAWN_URSULA, 1s);
     }
 
     void JustDied(Unit* /*killer*/) override
@@ -217,7 +217,7 @@ struct boss_coren_direbrew : public BossAI
     void SummonSister(uint32 entry)
     {
         if (Creature* sister = me->SummonCreature(entry, me->GetPosition(), TEMPSUMMON_DEAD_DESPAWN))
-            sister->SetInCombatWithZone();
+            DoZoneInCombat(sister);
     }
 
     void UpdateAI(uint32 diff) override
@@ -317,7 +317,7 @@ struct npc_coren_direbrew_sisters : public ScriptedAI
         })
             .Schedule(Seconds(2), [this](TaskContext mugChuck)
         {
-            if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 0.0f, false, true, -SPELL_HAS_DARK_BREWMAIDENS_BREW))
+            if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, false, true, -SPELL_HAS_DARK_BREWMAIDENS_BREW))
                 DoCast(target, SPELL_CHUCK_MUG);
             mugChuck.Repeat(Seconds(4));
         });
@@ -343,10 +343,10 @@ struct npc_direbrew_minion : public ScriptedAI
     void Reset() override
     {
         me->SetFaction(FACTION_GOBLIN_DARK_IRON_BAR_PATRON);
-        me->SetInCombatWithZone();
+        DoZoneInCombat();
     }
 
-    void IsSummonedBy(Unit* /*summoner*/) override
+    void IsSummonedBy(WorldObject* /*summoner*/) override
     {
         if (Creature* coren = ObjectAccessor::GetCreature(*me, _instance->GetGuidData(DATA_COREN)))
             coren->AI()->JustSummoned(me);
@@ -373,7 +373,7 @@ struct npc_direbrew_antagonist : public ScriptedAI
             case ACTION_ANTAGONIST_HOSTILE:
                 me->SetImmuneToPC(false);
                 me->SetFaction(FACTION_GOBLIN_DARK_IRON_BAR_PATRON);
-                me->SetInCombatWithZone();
+                DoZoneInCombat();
                 break;
             default:
                 break;
@@ -593,7 +593,7 @@ void AddSC_boss_coren_direbrew()
     RegisterSpellScript(spell_direbrew_summon_mole_machine_target_picker);
     RegisterSpellScript(spell_send_mug_target_picker);
     RegisterSpellScript(spell_request_second_mug);
-    RegisterAuraScript(spell_send_mug_control_aura);
-    RegisterAuraScript(spell_barreled_control_aura);
-    RegisterAuraScript(spell_direbrew_disarm);
+    RegisterSpellScript(spell_send_mug_control_aura);
+    RegisterSpellScript(spell_barreled_control_aura);
+    RegisterSpellScript(spell_direbrew_disarm);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -62,7 +62,6 @@ public:
         {
             _Reset();
             _infused = false;
-            me->ApplySpellImmune(0, IMMUNITY_DAMAGE, SPELL_SCHOOL_MASK_ARCANE, true);
         }
 
         void KilledUnit(Unit* victim) override
@@ -77,14 +76,14 @@ public:
             Talk(SAY_DEATH);
         }
 
-        void JustEngagedWith(Unit* /*who*/) override
+        void JustEngagedWith(Unit* who) override
         {
-            _JustEngagedWith();
+            BossAI::JustEngagedWith(who);
             Talk(SAY_AGGRO);
 
-            events.ScheduleEvent(EVENT_HATEFUL_BOLT, Seconds(12));
-            events.ScheduleEvent(EVENT_SUMMON_ASTRAL_FLARE, Seconds(10));
-            events.ScheduleEvent(EVENT_BERSERK, Minutes(12));
+            events.ScheduleEvent(EVENT_HATEFUL_BOLT, 12s);
+            events.ScheduleEvent(EVENT_SUMMON_ASTRAL_FLARE, 10s);
+            events.ScheduleEvent(EVENT_BERSERK, 12min);
         }
 
         void DamageTaken(Unit* /*attacker*/, uint32& /*damage*/) override
@@ -102,7 +101,7 @@ public:
             switch (eventId)
             {
                 case EVENT_HATEFUL_BOLT:
-                    if (Unit* target = SelectTarget(SELECT_TARGET_MAXTHREAT, 1))
+                    if (Unit* target = SelectTarget(SelectTargetMethod::MaxThreat, 1))
                         DoCast(target, SPELL_HATEFUL_BOLT);
                     events.Repeat(Seconds(7), Seconds(15));
                     break;

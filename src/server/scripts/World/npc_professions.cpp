@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -208,7 +207,7 @@ int32 DoHighUnlearnCost(Player* /*player*/)                //tailor
 
 int32 DoMedUnlearnCost(Player* player)                     //blacksmith, leatherwork
 {
-    uint8 level = player->getLevel();
+    uint8 level = player->GetLevel();
     if (level < 51)
         return 250000;
     else if (level < 66)
@@ -219,7 +218,7 @@ int32 DoMedUnlearnCost(Player* player)                     //blacksmith, leather
 
 int32 DoLowUnlearnCost(Player* player)                     //blacksmith
 {
-    uint8 level = player->getLevel();
+    uint8 level = player->GetLevel();
     if (level < 66)
         return 50000;
     else
@@ -421,7 +420,7 @@ public:
             return (player->HasSpell(S_HAMMER) || player->HasSpell(S_AXE) || player->HasSpell(S_SWORD));
         }
 
-        bool GossipHello(Player* player) override
+        bool OnGossipHello(Player* player) override
         {
             if (me->IsQuestGiver())
                 player->PrepareQuestMenu(me->GetGUID());
@@ -458,7 +457,7 @@ public:
                 }
             }
             //WEAPONSMITH SPEC
-            if (player->HasSpell(S_WEAPON) && player->getLevel() > 49 && player->GetBaseSkillValue(SKILL_BLACKSMITHING) >= 250)
+            if (player->HasSpell(S_WEAPON) && player->GetLevel() > 49 && player->GetBaseSkillValue(SKILL_BLACKSMITHING) >= 250)
             {
                 switch (creatureId)
                 {
@@ -495,7 +494,7 @@ public:
                     player->GetSession()->SendListInventory(me->GetGUID());
                     break;
                 case GOSSIP_ACTION_TRAIN:
-                    player->GetSession()->SendTrainerList(me->GetGUID());
+                    player->GetSession()->SendTrainerList(me);
                     break;
                     //Learn Armor/Weapon
                 case GOSSIP_ACTION_INFO_DEF + 1:
@@ -612,7 +611,7 @@ public:
             }
         }
 
-        bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
         {
             uint32 const sender = player->PlayerTalkClass->GetGossipOptionSender(gossipListId);
             uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
@@ -694,7 +693,7 @@ public:
             return res;
         }
 
-        bool GossipHello(Player* player) override
+        bool OnGossipHello(Player* player) override
         {
             uint32 npcTextId = 0;
             std::string gossipItem;
@@ -734,7 +733,7 @@ public:
             return true;
         }
 
-        bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
         {
             uint32 const sender = player->PlayerTalkClass->GetGossipOptionSender(gossipListId);
             uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
@@ -798,7 +797,7 @@ class go_soothsaying_for_dummies : public GameObjectScript
         {
             go_soothsaying_for_dummiesAI(GameObject* go) : GameObjectAI(go) { }
 
-            bool GossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
+            bool OnGossipSelect(Player* player, uint32 menuId, uint32 gossipListId) override
             {
                 if (menuId != GOSSIP_ID)
                     return false;
@@ -854,7 +853,7 @@ public:
     {
         npc_prof_leatherAI(Creature* creature) : ScriptedAI(creature) { }
 
-        bool GossipHello(Player* player) override
+        bool OnGossipHello(Player* player) override
         {
             if (me->IsQuestGiver())
                 player->PrepareQuestMenu(me->GetGUID());
@@ -865,7 +864,7 @@ public:
             if (me->IsTrainer())
                 AddGossipItemFor(player, GOSSIP_ICON_TRAINER, GOSSIP_TEXT_TRAIN, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_TRAIN);
 
-            if (player->HasSkill(SKILL_LEATHERWORKING) && player->GetBaseSkillValue(SKILL_LEATHERWORKING) >= 250 && player->getLevel() > 49)
+            if (player->HasSkill(SKILL_LEATHERWORKING) && player->GetBaseSkillValue(SKILL_LEATHERWORKING) >= 250 && player->GetLevel() > 49)
             {
                 switch (me->GetEntry())
                 {
@@ -899,7 +898,7 @@ public:
                     player->GetSession()->SendListInventory(me->GetGUID());
                     break;
                 case GOSSIP_ACTION_TRAIN:
-                    player->GetSession()->SendTrainerList(me->GetGUID());
+                    player->GetSession()->SendTrainerList(me);
                     break;
                     //Unlearn Leather
                 case GOSSIP_ACTION_INFO_DEF + 1:
@@ -942,7 +941,7 @@ public:
             }
         }
 
-        bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
         {
             uint32 const sender = player->PlayerTalkClass->GetGossipOptionSender(gossipListId);
             uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
@@ -989,7 +988,7 @@ public:
             return (player->HasSpell(S_MOONCLOTH) || player->HasSpell(S_SHADOWEAVE) || player->HasSpell(S_SPELLFIRE));
         }
 
-        bool GossipHello(Player* player) override
+        bool OnGossipHello(Player* player) override
         {
             if (me->IsQuestGiver())
                 player->PrepareQuestMenu(me->GetGUID());
@@ -1001,7 +1000,7 @@ public:
                 AddGossipItemFor(player, GOSSIP_ICON_TRAINER, GOSSIP_TEXT_TRAIN, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_TRAIN);
 
             //TAILORING SPEC
-            if (player->HasSkill(SKILL_TAILORING) && player->GetBaseSkillValue(SKILL_TAILORING) >= 350 && player->getLevel() > 59)
+            if (player->HasSkill(SKILL_TAILORING) && player->GetBaseSkillValue(SKILL_TAILORING) >= 350 && player->GetLevel() > 59)
             {
                 if (player->GetQuestRewardStatus(10831) || player->GetQuestRewardStatus(10832) || player->GetQuestRewardStatus(10833))
                 {
@@ -1041,7 +1040,7 @@ public:
                     player->GetSession()->SendListInventory(me->GetGUID());
                     break;
                 case GOSSIP_ACTION_TRAIN:
-                    player->GetSession()->SendTrainerList(me->GetGUID());
+                    player->GetSession()->SendTrainerList(me);
                     break;
                     //Learn Tailor
                 case GOSSIP_ACTION_INFO_DEF + 1:
@@ -1116,7 +1115,7 @@ public:
             }
         }
 
-        bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
         {
             uint32 const sender = player->PlayerTalkClass->GetGossipOptionSender(gossipListId);
             uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);

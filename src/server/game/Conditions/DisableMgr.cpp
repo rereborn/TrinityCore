@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,12 +17,15 @@
 
 #include "DisableMgr.h"
 #include "AchievementMgr.h"
+#include "Creature.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "Map.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvP.h"
 #include "Player.h"
 #include "SpellMgr.h"
+#include "StringConvert.h"
 #include "VMapManager2.h"
 #include "World.h"
 
@@ -34,7 +36,7 @@ namespace
 {
     struct DisableData
     {
-        uint8 flags;
+        uint16 flags;
         std::set<uint32> params[2];                             // params0, params1
     };
 
@@ -80,7 +82,7 @@ void LoadDisables()
         }
 
         uint32 entry = fields[1].GetUInt32();
-        uint8 flags = fields[2].GetUInt8();
+        uint16 flags = fields[2].GetUInt16();
         std::string params_0 = fields[3].GetString();
         std::string params_1 = fields[4].GetString();
 
@@ -104,16 +106,24 @@ void LoadDisables()
 
                 if (flags & SPELL_DISABLE_MAP)
                 {
-                    Tokenizer tokens(params_0, ',');
-                    for (uint8 i = 0; i < tokens.size(); )
-                        data.params[0].insert(atoi(tokens[i++]));
+                    for (std::string_view mapStr : Trinity::Tokenize(params_0, ',', true))
+                    {
+                        if (Optional<uint32> mapId = Trinity::StringTo<uint32>(mapStr))
+                            data.params[0].insert(*mapId);
+                        else
+                            TC_LOG_ERROR("sql.sql", "Disable map '%s' for spell %u is invalid, skipped.", std::string(mapStr).c_str(), entry);
+                    }
                 }
 
                 if (flags & SPELL_DISABLE_AREA)
                 {
-                    Tokenizer tokens(params_1, ',');
-                    for (uint8 i = 0; i < tokens.size(); )
-                        data.params[1].insert(atoi(tokens[i++]));
+                    for (std::string_view areaStr : Trinity::Tokenize(params_0, ',', true))
+                    {
+                        if (Optional<uint32> areaId = Trinity::StringTo<uint32>(areaStr))
+                            data.params[1].insert(*areaId);
+                        else
+                            TC_LOG_ERROR("sql.sql", "Disable area '%s' for spell %u is invalid, skipped.", std::string(areaStr).c_str(), entry);
+                    }
                 }
 
                 break;
@@ -130,7 +140,7 @@ void LoadDisables()
                     continue;
                 }
                 bool isFlagInvalid = false;
-                switch (mapEntry->map_type)
+                switch (mapEntry->InstanceType)
                 {
                     case MAP_COMMON:
                         if (flags)
@@ -194,7 +204,7 @@ void LoadDisables()
                     TC_LOG_ERROR("sql.sql", "Map entry %u from `disables` doesn't exist in dbc, skipped.", entry);
                     continue;
                 }
-                switch (mapEntry->map_type)
+                switch (mapEntry->InstanceType)
                 {
                     case MAP_COMMON:
                         if (flags & VMAP::VMAP_DISABLE_AREAFLAG)
@@ -234,7 +244,7 @@ void LoadDisables()
                     TC_LOG_ERROR("sql.sql", "Map entry %u from `disables` doesn't exist in dbc, skipped.", entry);
                     continue;
                 }
-                switch (mapEntry->map_type)
+                switch (mapEntry->InstanceType)
                 {
                     case MAP_COMMON:
                         TC_LOG_INFO("misc", "Pathfinding disabled for world map %u.", entry);
@@ -295,7 +305,7 @@ void CheckQuestDisables()
     TC_LOG_INFO("server.loading", ">> Checked %u quest disables in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
-bool IsDisabledFor(DisableType type, uint32 entry, Unit const* unit, uint8 flags)
+bool IsDisabledFor(DisableType type, uint32 entry, WorldObject const* ref, uint8 flags /*= 0*/)
 {
     ASSERT(type < MAX_DISABLE_TYPES);
     if (m_DisableMap[type].empty())
@@ -309,16 +319,29 @@ bool IsDisabledFor(DisableType type, uint32 entry, Unit const* unit, uint8 flags
     {
         case DISABLE_TYPE_SPELL:
         {
-            uint8 spellFlags = itr->second.flags;
-            if (unit)
+            uint16 spellFlags = itr->second.flags;
+            if (ref)
             {
-                if ((spellFlags & SPELL_DISABLE_PLAYER && unit->GetTypeId() == TYPEID_PLAYER) ||
-                    (unit->GetTypeId() == TYPEID_UNIT && ((unit->IsPet() && spellFlags & SPELL_DISABLE_PET) || spellFlags & SPELL_DISABLE_CREATURE)))
+                if ((ref->GetTypeId() == TYPEID_PLAYER && (spellFlags & SPELL_DISABLE_PLAYER)) ||
+                    (ref->GetTypeId() == TYPEID_UNIT && ((spellFlags & SPELL_DISABLE_CREATURE) || (ref->ToCreature()->IsPet() && (spellFlags & SPELL_DISABLE_PET)))) ||
+                    (ref->GetTypeId() == TYPEID_GAMEOBJECT && (spellFlags & SPELL_DISABLE_GAMEOBJECT)))
                 {
+                    if (spellFlags & (SPELL_DISABLE_ARENAS | SPELL_DISABLE_BATTLEGROUNDS))
+                    {
+                        if (Map const* map = ref->FindMap())
+                        {
+                            if (spellFlags & SPELL_DISABLE_ARENAS && map->IsBattleArena())
+                                return true;                                    // Current map is Arena and this spell is disabled here
+
+                            if (spellFlags & SPELL_DISABLE_BATTLEGROUNDS && map->IsBattleground())
+                                return true;                                    // Current map is a Battleground and this spell is disabled here
+                        }
+                    }
+
                     if (spellFlags & SPELL_DISABLE_MAP)
                     {
                         std::set<uint32> const& mapIds = itr->second.params[0];
-                        if (mapIds.find(unit->GetMapId()) != mapIds.end())
+                        if (mapIds.find(ref->GetMapId()) != mapIds.end())
                             return true;                                        // Spell is disabled on current map
 
                         if (!(spellFlags & SPELL_DISABLE_AREA))
@@ -330,7 +353,7 @@ bool IsDisabledFor(DisableType type, uint32 entry, Unit const* unit, uint8 flags
                     if (spellFlags & SPELL_DISABLE_AREA)
                     {
                         std::set<uint32> const& areaIds = itr->second.params[1];
-                        if (areaIds.find(unit->GetAreaId()) != areaIds.end())
+                        if (areaIds.find(ref->GetAreaId()) != areaIds.end())
                             return true;                                        // Spell is disabled in this area
                         return false;                                           // Spell is disabled in another area, but not this one, return false
                     }
@@ -349,7 +372,7 @@ bool IsDisabledFor(DisableType type, uint32 entry, Unit const* unit, uint8 flags
         }
         case DISABLE_TYPE_MAP:
         case DISABLE_TYPE_LFG_MAP:
-            if (Player const* player = unit->ToPlayer())
+            if (Player const* player = ref->ToPlayer())
             {
                 MapEntry const* mapEntry = sMapStore.LookupEntry(entry);
                 if (mapEntry->IsDungeon())
@@ -369,16 +392,11 @@ bool IsDisabledFor(DisableType type, uint32 entry, Unit const* unit, uint8 flags
                             return (disabledModes & RAID_STATUSFLAG_25MAN_HEROIC) != 0;
                     }
                 }
-                else if (mapEntry->map_type == MAP_COMMON)
+                else if (mapEntry->InstanceType == MAP_COMMON)
                     return true;
             }
             return false;
         case DISABLE_TYPE_QUEST:
-            if (!unit)
-                return true;
-            if (Player const* player = unit->ToPlayer())
-                if (player->IsGameMaster())
-                    return false;
             return true;
         case DISABLE_TYPE_BATTLEGROUND:
         case DISABLE_TYPE_OUTDOORPVP:

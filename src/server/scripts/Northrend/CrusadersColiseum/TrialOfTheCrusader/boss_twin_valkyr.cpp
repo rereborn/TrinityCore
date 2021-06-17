@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2010 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -191,11 +190,12 @@ struct boss_twin_baseAI : public BossAI
     {
         me->SetReactState(REACT_PASSIVE);
         me->ModifyAuraState(AuraState, true);
-        /* Uncomment this once that they are floating above the ground
-        me->SetLevitate(true);
-        me->SetFlying(true); */
-
         summons.DespawnAll();
+    }
+
+    void JustAppeared() override
+    {
+        events.Reset();
         events.SetPhase(PHASE_EVENT);
         events.ScheduleEvent(EVENT_START_MOVE, 4s);
     }
@@ -265,11 +265,11 @@ struct boss_twin_baseAI : public BossAI
 
     void JustEngagedWith(Unit* /*who*/) override
     {
-        me->SetInCombatWithZone();
+        DoZoneInCombat();
         if (Creature* pSister = GetSister())
         {
             me->AddAura(MyEmphatySpellId, pSister);
-            pSister->SetInCombatWithZone();
+            DoZoneInCombat(pSister);
         }
         instance->SetBossState(DATA_TWIN_VALKIRIES, IN_PROGRESS);
 
@@ -278,10 +278,10 @@ struct boss_twin_baseAI : public BossAI
         me->SetCombatPulseDelay(5);
         me->setActive(true);
 
-        events.ScheduleEvent(EVENT_TWIN_SPIKE, 20 * IN_MILLISECONDS);
-        events.ScheduleEvent(EVENT_BERSERK, IsHeroic() ? 6 * MINUTE*IN_MILLISECONDS : 10 * MINUTE*IN_MILLISECONDS);
+        events.ScheduleEvent(EVENT_TWIN_SPIKE, 20s);
+        events.ScheduleEvent(EVENT_BERSERK, IsHeroic() ? 6min : 8min);
         if (IsHeroic())
-            events.ScheduleEvent(EVENT_TOUCH, urand(10 * IN_MILLISECONDS, 15 * IN_MILLISECONDS));
+            events.ScheduleEvent(EVENT_TOUCH, 10s, 15s);
     }
 
     void DoAction(int32 action) override
@@ -317,16 +317,16 @@ struct boss_twin_baseAI : public BossAI
         {
             case EVENT_TWIN_SPIKE:
                 DoCastVictim(SpikeSpellId);
-                events.ScheduleEvent(EVENT_TWIN_SPIKE, 20 * IN_MILLISECONDS);
+                events.Repeat(20s);
                 break;
             case EVENT_TOUCH:
-                if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 0, 200.0f, true, true, OtherEssenceSpellId))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 200.0f, true, true, OtherEssenceSpellId))
                 {
                     CastSpellExtraArgs args;
                     args.AddSpellMod(SPELLVALUE_MAX_TARGETS, 1); // @todo spellmgr correction instead?
                     me->CastSpell(target, TouchSpellId, args);
                 }
-                events.ScheduleEvent(EVENT_TOUCH, urand(10 * IN_MILLISECONDS, 15 * IN_MILLISECONDS));
+                events.Repeat(10s, 15s);
                 break;
             case EVENT_BERSERK:
                 DoCast(me, SPELL_BERSERK);
@@ -433,7 +433,7 @@ class boss_fjola : public CreatureScript
                             break;
                     }
                     ++CurrentStage;
-                    events.ScheduleEvent(EVENT_SPECIAL_ABILITY, 45 * IN_MILLISECONDS);
+                    events.ScheduleEvent(EVENT_SPECIAL_ABILITY, 45s);
                 }
                 else
                     boss_twin_baseAI::ExecuteEvent(eventId);
@@ -442,7 +442,7 @@ class boss_fjola : public CreatureScript
             void JustEngagedWith(Unit* who) override
             {
                 instance->DoStartTimedAchievement(ACHIEVEMENT_TIMED_TYPE_EVENT,  EVENT_START_TWINS_FIGHT);
-                events.ScheduleEvent(EVENT_SPECIAL_ABILITY, 45 * IN_MILLISECONDS);
+                events.ScheduleEvent(EVENT_SPECIAL_ABILITY, 45s);
                 me->SummonCreature(NPC_BULLET_CONTROLLER, ToCCommonLoc[1].GetPositionX(), ToCCommonLoc[1].GetPositionY(), ToCCommonLoc[1].GetPositionZ(), 0.0f, TEMPSUMMON_MANUAL_DESPAWN);
                 boss_twin_baseAI::JustEngagedWith(who);
             }
@@ -456,7 +456,6 @@ class boss_fjola : public CreatureScript
             void JustReachedHome() override
             {
                 instance->DoUseDoorOrButton(instance->GetGuidData(DATA_MAIN_GATE));
-
                 boss_twin_baseAI::JustReachedHome();
             }
 
@@ -546,7 +545,7 @@ class npc_essence_of_twin : public CreatureScript
                 return spellReturned;
             }
 
-            bool GossipHello(Player* player) override
+            bool OnGossipHello(Player* player) override
             {
                 player->RemoveAurasDueToSpell(GetData(ESSENCE_REMOVE));
                 player->CastSpell(player, GetData(ESSENCE_APPLY), true);
@@ -570,7 +569,7 @@ struct npc_unleashed_ballAI : public ScriptedAI
 
     void Initialize()
     {
-        RangeCheckTimer = 0.5*IN_MILLISECONDS;
+        RangeCheckTimer = 500;
     }
 
     void MoveToNextPoint()
@@ -637,9 +636,9 @@ class npc_unleashed_dark : public CreatureScript
                     {
                         DoCastAOE(SPELL_UNLEASHED_DARK_HELPER);
                         me->GetMotionMaster()->MoveIdle();
-                        me->DespawnOrUnsummon(1*IN_MILLISECONDS);
+                        me->DespawnOrUnsummon(1s);
                     }
-                    RangeCheckTimer = 0.5*IN_MILLISECONDS;
+                    RangeCheckTimer = 500;
                 }
                 else
                     RangeCheckTimer -= diff;
@@ -669,9 +668,9 @@ class npc_unleashed_light : public CreatureScript
                     {
                         DoCastAOE(SPELL_UNLEASHED_LIGHT_HELPER);
                         me->GetMotionMaster()->MoveIdle();
-                        me->DespawnOrUnsummon(1 * IN_MILLISECONDS);
+                        me->DespawnOrUnsummon(1s);
                     }
-                    RangeCheckTimer = IN_MILLISECONDS / 2;
+                    RangeCheckTimer = 500;
                 }
                 else
                     RangeCheckTimer -= diff;
@@ -713,8 +712,7 @@ class npc_bullet_controller : public CreatureScript
         }
 };
 
-// 66149 - Bullet Controller Periodic
-// 68396 - Bullet Controller Periodic
+// 66149, 68396 - Bullet Controller Periodic
 class spell_bullet_controller : public AuraScript
 {
     PrepareAuraScript(spell_bullet_controller);
@@ -743,6 +741,7 @@ class spell_bullet_controller : public AuraScript
     }
 };
 
+// 67590, 67602, 67603, 67604 - Powering Up
 class spell_powering_up : public SpellScriptLoader
 {
     public:
@@ -800,6 +799,8 @@ class spell_powering_up : public SpellScriptLoader
         }
 };
 
+// 65684, 67176, 67177, 67178 - Dark Essence
+// 65686, 67222, 67223, 67224 - Light Essence
 class spell_valkyr_essences : public SpellScriptLoader
 {
     public:
@@ -900,6 +901,8 @@ class spell_valkyr_essences : public SpellScriptLoader
         }
 };
 
+// 65879, 67244, 67245, 67246 - Power of the Twins
+// 65916, 67248, 67249, 67250 - Power of the Twins
 class spell_power_of_the_twins : public SpellScriptLoader
 {
     public:
@@ -955,7 +958,7 @@ void AddSC_boss_twin_valkyr()
     new npc_essence_of_twin();
     new npc_bullet_controller();
 
-    RegisterAuraScript(spell_bullet_controller);
+    RegisterSpellScript(spell_bullet_controller);
     new spell_powering_up();
     new spell_valkyr_essences();
     new spell_power_of_the_twins();

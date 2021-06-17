@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -55,7 +55,8 @@ enum RogueSpells
     SPELL_ROGUE_QUICK_RECOVERY_ENERGY           = 31663,
     SPELL_ROGUE_CRIPPLING_POISON                =  3409,
     SPELL_ROGUE_MASTER_OF_SUBTLETY_BUFF         = 31665,
-    SPELL_ROGUE_OVERKILL_BUFF                   = 58427
+    SPELL_ROGUE_OVERKILL_BUFF                   = 58427,
+    SPELL_ROGUE_STEALTH                         =  1784
 };
 
 // 13877, 33735, (check 51211, 65956) - Blade Flurry
@@ -254,8 +255,11 @@ class spell_rog_deadly_poison : public SpellScriptLoader
                 return GetCaster()->GetTypeId() == TYPEID_PLAYER && GetCastItem();
             }
 
-            void HandleBeforeHit()
+            void HandleBeforeHit(SpellMissInfo missInfo)
             {
+                if (missInfo != SPELL_MISS_NONE)
+                    return;
+
                 if (Unit* target = GetHitUnit())
                     // Deadly Poison
                     if (AuraEffect const* aurEff = target->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_ROGUE, 0x10000, 0x80000, 0, GetCaster()->GetGUID()))
@@ -289,13 +293,13 @@ class spell_rog_deadly_poison : public SpellScriptLoader
 
                         for (uint8 s = 0; s < 3; ++s)
                         {
-                            if (enchant->type[s] != ITEM_ENCHANTMENT_TYPE_COMBAT_SPELL)
+                            if (enchant->Effect[s] != ITEM_ENCHANTMENT_TYPE_COMBAT_SPELL)
                                 continue;
 
-                            SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(enchant->spellid[s]);
+                            SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(enchant->EffectArg[s]);
                             if (!spellInfo)
                             {
-                                TC_LOG_ERROR("spells", "Player::CastItemCombatSpell Enchant %i, player (Name: %s, GUID: %u) cast unknown spell %i", enchant->ID, player->GetName().c_str(), player->GetGUID().GetCounter(), enchant->spellid[s]);
+                                TC_LOG_ERROR("spells", "Player::CastItemCombatSpell Enchant %i, player (Name: %s, %s) cast unknown spell %i", enchant->ID, player->GetName().c_str(), player->GetGUID().ToString().c_str(), enchant->EffectArg[s]);
                                 continue;
                             }
 
@@ -308,9 +312,9 @@ class spell_rog_deadly_poison : public SpellScriptLoader
                                 continue;
 
                             if (spellInfo->IsPositive())
-                                player->CastSpell(player, enchant->spellid[s], item);
+                                player->CastSpell(player, enchant->EffectArg[s], item);
                             else
-                                player->CastSpell(target, enchant->spellid[s], item);
+                                player->CastSpell(target, enchant->EffectArg[s], item);
                         }
                     }
                 }
@@ -318,7 +322,7 @@ class spell_rog_deadly_poison : public SpellScriptLoader
 
             void Register() override
             {
-                BeforeHit += SpellHitFn(spell_rog_deadly_poison_SpellScript::HandleBeforeHit);
+                BeforeHit += BeforeSpellHitFn(spell_rog_deadly_poison_SpellScript::HandleBeforeHit);
                 AfterHit += SpellHitFn(spell_rog_deadly_poison_SpellScript::HandleAfterHit);
             }
 
@@ -924,6 +928,7 @@ public:
     void SetRedirectTarget(ObjectGuid const& guid) { _redirectTarget = guid; }
 };
 
+// 57934 - Tricks of the Trade
 class spell_rog_tricks_of_the_trade : public SpellScript
 {
     PrepareSpellScript(spell_rog_tricks_of_the_trade);
@@ -962,7 +967,7 @@ class spell_rog_tricks_of_the_trade_proc : public AuraScript
     }
 };
 
-// 51698,51700,51701 - Honor Among Thieves
+// -51698, 51700, 51701 - Honor Among Thieves
 class spell_rog_honor_among_thieves : public SpellScriptLoader
 {
 public:
@@ -1116,6 +1121,38 @@ class spell_rog_turn_the_tables : public SpellScriptLoader
         }
 };
 
+// -11327 - Vanish
+class spell_rog_vanish : public AuraScript
+{
+    PrepareAuraScript(spell_rog_vanish);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_ROGUE_STEALTH });
+    }
+
+    void ApplyStealth(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* unitTarget = GetTarget();
+        unitTarget->RemoveAurasByType(SPELL_AURA_MOD_STALKED);
+
+        // See if we already are stealthed. If so, we're done.
+        if (unitTarget->HasAura(SPELL_ROGUE_STEALTH))
+            return;
+
+        // Reset cooldown on stealth if needed
+        if (unitTarget->GetSpellHistory()->HasCooldown(SPELL_ROGUE_STEALTH))
+            unitTarget->GetSpellHistory()->ResetCooldown(SPELL_ROGUE_STEALTH);
+
+        unitTarget->CastSpell(nullptr, SPELL_ROGUE_STEALTH, true);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_rog_vanish::ApplyStealth, EFFECT_1, SPELL_AURA_MOD_STEALTH, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+    }
+};
+
 void AddSC_rogue_spell_scripts()
 {
     new spell_rog_blade_flurry();
@@ -1136,8 +1173,9 @@ void AddSC_rogue_spell_scripts()
     new spell_rog_setup();
     new spell_rog_shiv();
     RegisterSpellAndAuraScriptPair(spell_rog_tricks_of_the_trade, spell_rog_tricks_of_the_trade_aura);
-    RegisterAuraScript(spell_rog_tricks_of_the_trade_proc);
+    RegisterSpellScript(spell_rog_tricks_of_the_trade_proc);
     new spell_rog_honor_among_thieves();
     new spell_rog_honor_among_thieves_proc();
     new spell_rog_turn_the_tables();
+    RegisterSpellScript(spell_rog_vanish);
 }

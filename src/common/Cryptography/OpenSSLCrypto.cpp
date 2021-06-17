@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,6 +17,8 @@
 
 #include <OpenSSLCrypto.h>
 #include <openssl/crypto.h>
+
+#if defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER < 0x1010000fL
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -33,6 +35,7 @@ static void lockingCallback(int mode, int type, char const* /*file*/, int /*line
 
 static void threadIdCallback(CRYPTO_THREADID * id)
 {
+    (void)id;
     CRYPTO_THREADID_set_numeric(id, std::hash<std::thread::id>()(std::this_thread::get_id()));
 }
 
@@ -41,9 +44,13 @@ void OpenSSLCrypto::threadsSetup()
     cryptoLocks.resize(CRYPTO_num_locks());
     for(int i = 0 ; i < CRYPTO_num_locks(); ++i)
     {
-        cryptoLocks[i] = new std::mutex;
+        cryptoLocks[i] = new std::mutex();
     }
+
+    (void)&threadIdCallback;
     CRYPTO_THREADID_set_callback(threadIdCallback);
+
+    (void)&lockingCallback;
     CRYPTO_set_locking_callback(lockingCallback);
 }
 
@@ -57,3 +64,4 @@ void OpenSSLCrypto::threadsCleanup()
     }
     cryptoLocks.resize(0);
 }
+#endif

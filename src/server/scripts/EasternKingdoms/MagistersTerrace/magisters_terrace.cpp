@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -82,7 +81,7 @@ public:
                 me->HandleEmoteCommand(EMOTE_ONESHOT_LAND);
                 me->SetDisableGravity(false);
                 me->SetHover(false);
-                events.ScheduleEvent(EVENT_KALECGOS_LANDING, Seconds(2));
+                events.ScheduleEvent(EVENT_KALECGOS_LANDING, 2s);
             }
         }
 
@@ -95,7 +94,7 @@ public:
                 case EVENT_KALECGOS_LANDING:
                     DoCastAOE(SPELL_CAMERA_SHAKE);
                     me->SetObjectScale(0.6f);
-                    events.ScheduleEvent(EVENT_KALECGOS_TRANSFORM, Seconds(1));
+                    events.ScheduleEvent(EVENT_KALECGOS_TRANSFORM, 1s);
                     break;
                 case EVENT_KALECGOS_TRANSFORM:
                     DoCast(me, SPELL_ORB_KILL_CREDIT, true);
@@ -108,7 +107,7 @@ public:
             }
         }
 
-        bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+        bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
         {
             uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
             ClearGossipMenuFor(player);
@@ -138,7 +137,7 @@ public:
             return true;
         }
 
-        bool GossipHello(Player* player) override
+        bool OnGossipHello(Player* player) override
         {
             if (me->IsQuestGiver())
                 player->PrepareQuestMenu(me->GetGUID());

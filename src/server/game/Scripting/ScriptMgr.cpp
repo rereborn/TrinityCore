@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,7 +16,7 @@
  */
 
 #include "ScriptMgr.h"
-#include "Chat.h"
+#include "ChatCommand.h"
 #include "Config.h"
 #include "Creature.h"
 #include "CreatureAIImpl.h"
@@ -77,6 +76,10 @@ struct is_script_database_bound<VehicleScript>
 template<>
 struct is_script_database_bound<AreaTriggerScript>
     : std::true_type { };
+
+template<>
+struct is_script_database_bound<BattlefieldScript>
+        : std::true_type { };
 
 template<>
 struct is_script_database_bound<BattlegroundScript>
@@ -224,7 +227,7 @@ public:
     void QueueForDelayedDelete(T&& any)
     {
         _delayed_delete_queue.push_back(
-            Trinity::make_unique<
+    std::make_unique<
                 DeleteableObject<typename std::decay<T>::type>
             >(std::forward<T>(any))
         );
@@ -421,7 +424,7 @@ class CreatureGameObjectScriptRegistrySwapHooks
         if (creature->IsAlive())
             creature->ClearUnitState(UNIT_STATE_EVADE);
 
-        bool const created = creature->AIM_Initialize();
+        bool const created = creature->AIM_Create();
         ASSERT(created,
                "Creating the AI should never fail here!");
         (void)created;
@@ -432,12 +435,15 @@ class CreatureGameObjectScriptRegistrySwapHooks
         if (!creature->IsAlive())
             return;
 
+        creature->AI()->InitializeAI();
+        if (creature->GetVehicleKit())
+            creature->GetVehicleKit()->Reset();
         creature->AI()->EnterEvadeMode();
 
         // Cast a dummy visual spell asynchronously here to signal
         // that the AI was hot swapped
         creature->m_Events.AddEvent(new AsyncCastHotswapEffectEvent(creature),
-            creature->m_Events.CalculateTime(0));
+            creature->m_Events.CalculateTime(0s));
     }
 
     // Hook which is called after a gameobject was swapped
@@ -592,6 +598,11 @@ class ScriptRegistrySwapHooks<GameObjectScript, Base>
     : public CreatureGameObjectScriptRegistrySwapHooks<
         GameObject, GameObjectScript, Base
       > { };
+
+/// This hook is responsible for swapping BattlefieldScripts
+template<typename Base>
+class ScriptRegistrySwapHooks<BattlefieldScript, Base>
+        : public UnsupportedScriptRegistrySwapHooks<Base> { };
 
 /// This hook is responsible for swapping BattlegroundScript's
 template<typename Base>
@@ -778,7 +789,7 @@ public:
                 if (stored_script.second->GetName() == script->GetName())
                 {
                     // If the script is already assigned -> delete it!
-                    TC_LOG_ERROR("scripts", "Script '%s' already assigned with the same script name, "
+                    ABORT_MSG("Script '%s' already assigned with the same script name, "
                         "so the script can't work.", script->GetName().c_str());
 
                     // Error that should be fixed ASAP.
@@ -799,7 +810,7 @@ public:
         else
         {
             // The script uses a script name from database, but isn't assigned to anything.
-            TC_LOG_ERROR("sql.sql", "Script named '%s' does not have a script name assigned in database.",
+            TC_LOG_ERROR("sql.sql", "Script '%s' exists in the core, but the database does not assign it to any creature.",
                 script->GetName().c_str());
 
             // Avoid calling "delete script;" because we are currently in the script constructor
@@ -861,17 +872,17 @@ class ScriptRegistrySwapHooks<CommandScript, Base>
 public:
     void BeforeReleaseContext(std::string const& /*context*/) final override
     {
-        ChatHandler::invalidateCommandTable();
+        Trinity::ChatCommands::InvalidateCommandMap();
     }
 
     void BeforeSwapContext(bool /*initialize*/) override
     {
-        ChatHandler::invalidateCommandTable();
+        Trinity::ChatCommands::InvalidateCommandMap();
     }
 
     void BeforeUnload() final override
     {
-        ChatHandler::invalidateCommandTable();
+        Trinity::ChatCommands::InvalidateCommandMap();
     }
 };
 
@@ -983,8 +994,8 @@ private:
 
 struct TSpellSummary
 {
-    uint8 Targets;                                          // set of enum SelectTarget
-    uint8 Effects;                                          // set of enum SelectEffect
+    uint8 Targets; // set of enum SelectTarget
+    uint8 Effects; // set of enum SelectEffect
 } *SpellSummary;
 
 ScriptObject::ScriptObject(char const* name) : _name(name)
@@ -998,7 +1009,7 @@ ScriptObject::~ScriptObject()
 }
 
 ScriptMgr::ScriptMgr()
-  : _scriptCount(0), _script_loader_callback(nullptr)
+    : _scriptCount(0), _script_loader_callback(nullptr)
 {
 }
 
@@ -1060,8 +1071,7 @@ void ScriptMgr::Initialize()
         if (scriptName.empty())
             continue;
 
-        TC_LOG_ERROR("sql.sql", "ScriptName '%s' exists in database, "
-                     "but no core script found!", scriptName.c_str());
+        TC_LOG_ERROR("sql.sql", "Script '%s' is referenced by the database, but does not exist in the core!", scriptName.c_str());
     }
 
     TC_LOG_INFO("server.loading", ">> Loaded %u C++ scripts in %u ms",
@@ -1370,7 +1380,7 @@ void ScriptMgr::OnGroupRateCalculation(float& rate, uint32 count, bool isRaid)
             MapEntry const* C = I->second->GetEntry(); \
             if (!C) \
                 continue; \
-            if (C->MapID == V->GetId()) \
+            if (C->ID == V->GetId()) \
             {
 
 #define SCR_MAP_END \
@@ -1564,36 +1574,6 @@ bool ScriptMgr::OnCastItemCombatSpell(Player* player, Unit* victim, SpellInfo co
     return tmpscript->OnCastItemCombatSpell(player, victim, spellInfo, item);
 }
 
-bool ScriptMgr::CanSpawn(ObjectGuid::LowType spawnId, uint32 entry, CreatureData const* cData, Map const* map)
-{
-    ASSERT(map);
-    CreatureTemplate const* baseTemplate = sObjectMgr->GetCreatureTemplate(entry);
-    ASSERT(baseTemplate);
-
-    // find out which template we'd be using
-    CreatureTemplate const* actTemplate = baseTemplate;
-    for (uint8 diff = uint8(map->GetSpawnMode()); diff > 0;)
-    {
-        if (uint32 diffEntry = baseTemplate->DifficultyEntry[diff - 1])
-            if (CreatureTemplate const* diffTemplate = sObjectMgr->GetCreatureTemplate(diffEntry))
-            {
-                actTemplate = diffTemplate;
-                break;
-            }
-        if (diff >= RAID_DIFFICULTY_10MAN_HEROIC && map->IsRaid())
-            diff -= 2;
-        else
-            diff -= 1;
-    }
-
-    uint32 scriptId = baseTemplate->ScriptID;
-    if (cData && cData->scriptId)
-        scriptId = cData->scriptId;
-
-    GET_SCRIPT_RET(CreatureScript, scriptId, tmpscript, true);
-    return tmpscript->CanSpawn(spawnId, entry, baseTemplate, actTemplate, cData, map);
-}
-
 CreatureAI* ScriptMgr::GetCreatureAI(Creature* creature)
 {
     ASSERT(creature);
@@ -1615,8 +1595,14 @@ bool ScriptMgr::OnAreaTrigger(Player* player, AreaTriggerEntry const* trigger)
     ASSERT(player);
     ASSERT(trigger);
 
-    GET_SCRIPT_RET(AreaTriggerScript, sObjectMgr->GetAreaTriggerScriptId(trigger->id), tmpscript, false);
+    GET_SCRIPT_RET(AreaTriggerScript, sObjectMgr->GetAreaTriggerScriptId(trigger->ID), tmpscript, false);
     return tmpscript->OnTrigger(player, trigger);
+}
+
+Battlefield* ScriptMgr::CreateBattlefield(uint32 scriptId)
+{
+    GET_SCRIPT_RET(BattlefieldScript, scriptId, tmpscript, nullptr);
+    return tmpscript->GetBattlefield();
 }
 
 Battleground* ScriptMgr::CreateBattleground(BattlegroundTypeId /*typeId*/)
@@ -1632,21 +1618,15 @@ OutdoorPvP* ScriptMgr::CreateOutdoorPvP(uint32 scriptId)
     return tmpscript->GetOutdoorPvP();
 }
 
-std::vector<ChatCommand> ScriptMgr::GetChatCommands()
+Trinity::ChatCommands::ChatCommandTable ScriptMgr::GetChatCommands()
 {
-    std::vector<ChatCommand> table;
+    Trinity::ChatCommands::ChatCommandTable table;
 
-    FOR_SCRIPTS_RET(CommandScript, itr, end, table)
+    FOR_SCRIPTS(CommandScript, itr, end)
     {
-        std::vector<ChatCommand> cmds = itr->second->GetCommands();
-        table.insert(table.end(), cmds.begin(), cmds.end());
+        Trinity::ChatCommands::ChatCommandTable cmds = itr->second->GetCommands();
+        std::move(cmds.begin(), cmds.end(), std::back_inserter(table));
     }
-
-    // Sort commands in alphabetical order
-    std::sort(table.begin(), table.end(), [](ChatCommand const& a, ChatCommand const& b)
-    {
-        return strcmp(a.Name, b.Name) < 0;
-    });
 
     return table;
 }
@@ -1923,7 +1903,7 @@ void ScriptMgr::OnPlayerChat(Player* player, uint32 type, uint32 lang, std::stri
     FOREACH_SCRIPT(PlayerScript)->OnChat(player, type, lang, msg, channel);
 }
 
-void ScriptMgr::OnPlayerEmote(Player* player, uint32 emote)
+void ScriptMgr::OnPlayerEmote(Player* player, Emote emote)
 {
     FOREACH_SCRIPT(PlayerScript)->OnEmote(player, emote);
 }
@@ -1986,6 +1966,16 @@ void ScriptMgr::OnQuestStatusChange(Player* player, uint32 questId)
 void ScriptMgr::OnPlayerRepop(Player* player)
 {
     FOREACH_SCRIPT(PlayerScript)->OnPlayerRepop(player);
+}
+
+void ScriptMgr::OnQuestObjectiveProgress(Player* player, Quest const* quest, uint32 objectiveIndex, uint16 progress)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnQuestObjectiveProgress(player, quest, objectiveIndex, progress);
+}
+
+void ScriptMgr::OnMovieComplete(Player* player, uint32 movieId)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnMovieComplete(player, movieId);
 }
 
 // Account
@@ -2111,31 +2101,32 @@ void ScriptMgr::OnGroupDisband(Group* group)
 void ScriptMgr::OnHeal(Unit* healer, Unit* reciever, uint32& gain)
 {
     FOREACH_SCRIPT(UnitScript)->OnHeal(healer, reciever, gain);
-    FOREACH_SCRIPT(PlayerScript)->OnHeal(healer, reciever, gain);
 }
 
 void ScriptMgr::OnDamage(Unit* attacker, Unit* victim, uint32& damage)
 {
     FOREACH_SCRIPT(UnitScript)->OnDamage(attacker, victim, damage);
-    FOREACH_SCRIPT(PlayerScript)->OnDamage(attacker, victim, damage);
 }
 
 void ScriptMgr::ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage)
 {
     FOREACH_SCRIPT(UnitScript)->ModifyPeriodicDamageAurasTick(target, attacker, damage);
-    FOREACH_SCRIPT(PlayerScript)->ModifyPeriodicDamageAurasTick(target, attacker, damage);
 }
 
 void ScriptMgr::ModifyMeleeDamage(Unit* target, Unit* attacker, uint32& damage)
 {
     FOREACH_SCRIPT(UnitScript)->ModifyMeleeDamage(target, attacker, damage);
-    FOREACH_SCRIPT(PlayerScript)->ModifyMeleeDamage(target, attacker, damage);
 }
 
 void ScriptMgr::ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage)
 {
     FOREACH_SCRIPT(UnitScript)->ModifySpellDamageTaken(target, attacker, damage);
-    FOREACH_SCRIPT(PlayerScript)->ModifySpellDamageTaken(target, attacker, damage);
+}
+
+void ScriptMgr::ModifyVehiclePassengerExitPos(Unit* passenger, Vehicle* vehicle, Position& pos)
+{
+    FOREACH_SCRIPT(UnitScript)->ModifyVehiclePassengerExitPos(passenger, vehicle, pos);
+    FOREACH_SCRIPT(CreatureScript)->ModifyVehiclePassengerExitPos(passenger, vehicle, pos);
 }
 
 SpellScriptLoader::SpellScriptLoader(char const* name)
@@ -2162,11 +2153,10 @@ FormulaScript::FormulaScript(char const* name)
     ScriptRegistry<FormulaScript>::Instance()->AddScript(this);
 }
 
-UnitScript::UnitScript(char const* name, bool addToScripts)
+UnitScript::UnitScript(char const* name)
     : ScriptObject(name)
 {
-    if (addToScripts)
-        ScriptRegistry<UnitScript>::Instance()->AddScript(this);
+    ScriptRegistry<UnitScript>::Instance()->AddScript(this);
 }
 
 WorldMapScript::WorldMapScript(char const* name, uint32 mapId)
@@ -2212,7 +2202,7 @@ ItemScript::ItemScript(char const* name)
 }
 
 CreatureScript::CreatureScript(char const* name)
-    : UnitScript(name, false)
+    : ScriptObject(name)
 {
     ScriptRegistry<CreatureScript>::Instance()->AddScript(this);
 }
@@ -2231,18 +2221,24 @@ AreaTriggerScript::AreaTriggerScript(char const* name)
 
 bool OnlyOnceAreaTriggerScript::OnTrigger(Player* player, AreaTriggerEntry const* trigger)
 {
-    uint32 const triggerId = trigger->id;
-    if (InstanceScript* instance = player->GetInstanceScript())
-    {
-        if (instance->IsAreaTriggerDone(triggerId))
-            return true;
-        else
-            instance->MarkAreaTriggerDone(triggerId);
-    }
-    return _OnTrigger(player, trigger);
+    uint32 const triggerId = trigger->ID;
+    InstanceScript* instance = player->GetInstanceScript();
+    if (instance && instance->IsAreaTriggerDone(triggerId))
+        return true;
+
+    if (TryHandleOnce(player, trigger) && instance)
+        instance->MarkAreaTriggerDone(triggerId);
+
+    return true;
 }
 void OnlyOnceAreaTriggerScript::ResetAreaTriggerDone(InstanceScript* script, uint32 triggerId) { script->ResetAreaTriggerDone(triggerId); }
-void OnlyOnceAreaTriggerScript::ResetAreaTriggerDone(Player const* player, AreaTriggerEntry const* trigger) { if (InstanceScript* instance = player->GetInstanceScript()) ResetAreaTriggerDone(instance, trigger->id); }
+void OnlyOnceAreaTriggerScript::ResetAreaTriggerDone(Player const* player, AreaTriggerEntry const* trigger) { if (InstanceScript* instance = player->GetInstanceScript()) ResetAreaTriggerDone(instance, trigger->ID); }
+
+BattlefieldScript::BattlefieldScript(char const* name)
+        : ScriptObject(name)
+{
+    ScriptRegistry<BattlefieldScript>::Instance()->AddScript(this);
+}
 
 BattlegroundScript::BattlegroundScript(char const* name)
     : ScriptObject(name)
@@ -2305,7 +2301,7 @@ AchievementCriteriaScript::AchievementCriteriaScript(char const* name)
 }
 
 PlayerScript::PlayerScript(char const* name)
-    : UnitScript(name, false)
+    : ScriptObject(name)
 {
     ScriptRegistry<PlayerScript>::Instance()->AddScript(this);
 }
@@ -2340,6 +2336,7 @@ template class TC_GAME_API ScriptRegistry<ItemScript>;
 template class TC_GAME_API ScriptRegistry<CreatureScript>;
 template class TC_GAME_API ScriptRegistry<GameObjectScript>;
 template class TC_GAME_API ScriptRegistry<AreaTriggerScript>;
+template class TC_GAME_API ScriptRegistry<BattlefieldScript>;
 template class TC_GAME_API ScriptRegistry<BattlegroundScript>;
 template class TC_GAME_API ScriptRegistry<OutdoorPvPScript>;
 template class TC_GAME_API ScriptRegistry<CommandScript>;

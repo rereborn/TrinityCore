@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -27,6 +26,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "VMapFactory.h"
+#include "VMapManager2.h"
 #include "World.h"
 
 MapInstanced::MapInstanced(uint32 id, time_t expiry) : Map(id, expiry, 0, DUNGEON_DIFFICULTY_NORMAL)
@@ -155,7 +155,9 @@ Map* MapInstanced::CreateInstanceForPlayer(uint32 mapId, Player* player, uint32 
             if (loginInstanceId) // if the player has a saved instance id on login, we either use this instance or relocate him out (return null)
             {
                 map = FindInstanceMap(loginInstanceId);
-                return (map && map->GetId() == GetId()) ? map : nullptr; // is this check necessary? or does MapInstanced only find instances of itself?
+                if (!map && pSave && pSave->GetInstanceId() == loginInstanceId)
+                    map = CreateInstance(loginInstanceId, pSave, pSave->GetDifficulty(), player->GetTeamId());
+                return map;
             }
 
             InstanceGroupBind* groupBind = nullptr;
@@ -179,7 +181,7 @@ Map* MapInstanced::CreateInstanceForPlayer(uint32 mapId, Player* player, uint32 
             map = FindInstanceMap(newInstanceId);
             // it is possible that the save exists but the map doesn't
             if (!map)
-                map = CreateInstance(newInstanceId, pSave, pSave->GetDifficulty());
+                map = CreateInstance(newInstanceId, pSave, pSave->GetDifficulty(), player->GetTeamId());
         }
         else
         {
@@ -192,14 +194,14 @@ Map* MapInstanced::CreateInstanceForPlayer(uint32 mapId, Player* player, uint32 
             //ASSERT(!FindInstanceMap(NewInstanceId));
             map = FindInstanceMap(newInstanceId);
             if (!map)
-                map = CreateInstance(newInstanceId, nullptr, diff);
+                map = CreateInstance(newInstanceId, nullptr, diff, player->GetTeamId());
         }
     }
 
     return map;
 }
 
-InstanceMap* MapInstanced::CreateInstance(uint32 InstanceId, InstanceSave* save, Difficulty difficulty)
+InstanceMap* MapInstanced::CreateInstance(uint32 InstanceId, InstanceSave* save, Difficulty difficulty, TeamId InstanceTeam)
 {
     // load/create a map
     std::lock_guard<std::mutex> lock(_mapLock);
@@ -221,9 +223,9 @@ InstanceMap* MapInstanced::CreateInstance(uint32 InstanceId, InstanceSave* save,
     // some instances only have one difficulty
     GetDownscaledMapDifficultyData(GetId(), difficulty);
 
-    TC_LOG_DEBUG("maps", "MapInstanced::CreateInstance: %s map instance %d for %d created with difficulty %s", save?"":"new ", InstanceId, GetId(), difficulty?"heroic":"normal");
+    TC_LOG_DEBUG("maps", "MapInstanced::CreateInstance: %s map instance %d for %d created with difficulty %u", save ? "" : "new ", InstanceId, GetId(), static_cast<uint32>(difficulty));
 
-    InstanceMap* map = new InstanceMap(GetId(), GetGridExpiry(), InstanceId, difficulty, this);
+    InstanceMap* map = new InstanceMap(GetId(), GetGridExpiry(), InstanceId, difficulty, this, InstanceTeam);
     ASSERT(map->IsDungeon());
 
     map->LoadRespawnTimes();
@@ -251,7 +253,7 @@ BattlegroundMap* MapInstanced::CreateBattleground(uint32 InstanceId, Battlegroun
     uint8 spawnMode;
 
     if (bracketEntry)
-        spawnMode = bracketEntry->difficulty;
+        spawnMode = bracketEntry->Difficulty;
     else
         spawnMode = REGULAR_DIFFICULTY;
 

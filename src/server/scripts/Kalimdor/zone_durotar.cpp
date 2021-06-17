@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -104,7 +104,7 @@ class npc_tiger_matriarch_credit : public CreatureScript
            npc_tiger_matriarch_creditAI(Creature* creature) : ScriptedAI(creature)
            {
                SetCombatMovement(false);
-               events.ScheduleEvent(EVENT_CHECK_SUMMON_AURA, 2000);
+               events.ScheduleEvent(EVENT_CHECK_SUMMON_AURA, 2s);
            }
 
             void UpdateAI(uint32 diff) override
@@ -122,7 +122,7 @@ class npc_tiger_matriarch_credit : public CreatureScript
                             if (!(*itr)->IsSummon())
                                 continue;
 
-                            if (Unit* summoner = (*itr)->ToTempSummon()->GetSummoner())
+                            if (Unit* summoner = (*itr)->ToTempSummon()->GetSummonerUnit())
                                 if (!summoner->HasAura(SPELL_NO_SUMMON_AURA) && !summoner->HasAura(SPELL_SUMMON_ZENTABRA_TRIGGER)
                                     && !summoner->IsInCombat())
                                 {
@@ -134,7 +134,7 @@ class npc_tiger_matriarch_credit : public CreatureScript
                         }
                     }
 
-                    events.ScheduleEvent(EVENT_CHECK_SUMMON_AURA, 5000);
+                    events.ScheduleEvent(EVENT_CHECK_SUMMON_AURA, 5s);
                 }
             }
 
@@ -162,13 +162,14 @@ class npc_tiger_matriarch : public CreatureScript
             void JustEngagedWith(Unit* /*target*/) override
             {
                 _events.Reset();
-                _events.ScheduleEvent(EVENT_POUNCE, 100);
-                _events.ScheduleEvent(EVENT_NOSUMMON, 50000);
+                _events.ScheduleEvent(EVENT_POUNCE, 100ms);
+                _events.ScheduleEvent(EVENT_NOSUMMON, 50s);
             }
 
-            void IsSummonedBy(Unit* summoner) override
+            void IsSummonedBy(WorldObject* summonerWO) override
             {
-                if (summoner->GetTypeId() != TYPEID_PLAYER || !summoner->GetVehicle())
+                Player* summoner = summonerWO->ToPlayer();
+                if (!summoner || !summoner->GetVehicle())
                     return;
 
                 _tigerGuid = summoner->GetVehicle()->GetBase()->GetGUID();
@@ -184,7 +185,7 @@ class npc_tiger_matriarch : public CreatureScript
                 if (victim->GetTypeId() != TYPEID_UNIT || !victim->IsSummon())
                     return;
 
-                if (Unit* vehSummoner = victim->ToTempSummon()->GetSummoner())
+                if (Unit* vehSummoner = victim->ToTempSummon()->GetSummonerUnit())
                 {
                     vehSummoner->RemoveAurasDueToSpell(SPELL_NO_SUMMON_AURA);
                     vehSummoner->RemoveAurasDueToSpell(SPELL_DETECT_INVIS);
@@ -196,14 +197,14 @@ class npc_tiger_matriarch : public CreatureScript
 
             void DamageTaken(Unit* attacker, uint32& damage) override
             {
-                if (!attacker->IsSummon())
+                if (!attacker || !attacker->IsSummon())
                     return;
 
                 if (HealthBelowPct(20))
                 {
                     damage = 0;
                     me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
-                    if (Unit* vehSummoner = attacker->ToTempSummon()->GetSummoner())
+                    if (Unit* vehSummoner = attacker->ToTempSummon()->GetSummonerUnit())
                     {
                         vehSummoner->AddAura(SPELL_SUMMON_ZENTABRA_TRIGGER, vehSummoner);
                         vehSummoner->CastSpell(vehSummoner, SPELL_SUMMON_ZENTABRA, true);
@@ -234,16 +235,16 @@ class npc_tiger_matriarch : public CreatureScript
                     {
                         case EVENT_POUNCE:
                             DoCastVictim(SPELL_POUNCE);
-                            _events.ScheduleEvent(EVENT_POUNCE, 30000);
+                            _events.ScheduleEvent(EVENT_POUNCE, 30s);
                             break;
                         case EVENT_NOSUMMON: // Reapply SPELL_NO_SUMMON_AURA
                             if (Unit* tiger = ObjectAccessor::GetUnit(*me, _tigerGuid))
                             {
                                 if (tiger->IsSummon())
-                                    if (Unit* vehSummoner = tiger->ToTempSummon()->GetSummoner())
+                                    if (Unit* vehSummoner = tiger->ToTempSummon()->GetSummonerUnit())
                                         me->AddAura(SPELL_NO_SUMMON_AURA, vehSummoner);
                             }
-                            _events.ScheduleEvent(EVENT_NOSUMMON, 50000);
+                            _events.ScheduleEvent(EVENT_NOSUMMON, 50s);
                             break;
                         default:
                             break;
@@ -340,9 +341,9 @@ class npc_troll_volunteer : public CreatureScript
                     me->DespawnOrUnsummon();
             }
 
-            void SpellHit(Unit* caster, SpellInfo const* spell) override
+            void SpellHit(WorldObject* caster, SpellInfo const* spellInfo) override
             {
-                if (spell->Id == SPELL_AOE_TURNIN && caster->GetEntry() == NPC_URUZIN && !_complete)
+                if (spellInfo->Id == SPELL_AOE_TURNIN && caster->GetEntry() == NPC_URUZIN && !_complete)
                 {
                     _complete = true;    // Preventing from giving credit twice
                     DoCast(me, SPELL_TURNIN);
@@ -367,6 +368,7 @@ class npc_troll_volunteer : public CreatureScript
 
 typedef npc_troll_volunteer::npc_troll_volunteerAI VolunteerAI;
 
+// 75420 - Mounting Check
 class spell_mount_check : public SpellScriptLoader
 {
     public:
@@ -413,6 +415,7 @@ class spell_mount_check : public SpellScriptLoader
         }
 };
 
+// 75102 - Vol'jin's War Drums
 class spell_voljin_war_drums : public SpellScriptLoader
 {
     public:
@@ -465,7 +468,7 @@ enum VoodooSpells
     SPELL_LAUNCH    = 16716, // Launch (Whee!)
 };
 
-// 17009
+// 17009 - Voodoo
 class spell_voodoo : public SpellScriptLoader
 {
     public:

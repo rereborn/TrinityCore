@@ -1,19 +1,18 @@
 /*
-* Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
 #ifndef TRINITYSERVER_MOVESPLINEINIT_H
@@ -23,15 +22,10 @@
 
 class Unit;
 
+enum class AnimationTier : uint8;
+
 namespace Movement
 {
-    enum AnimType
-    {
-        ToGround    = 0, // 460 = ToGround, index of AnimationData.dbc
-        FlyToFly    = 1, // 461 = FlyToFly?
-        ToFly       = 2, // 458 = ToFly
-        FlyToGround = 3  // 463 = FlyToGround
-    };
 
     // Transforms coordinates from global to transport offsets
     class TC_GAME_API TransportPathTransform
@@ -53,6 +47,8 @@ namespace Movement
     public:
 
         explicit MoveSplineInit(Unit* m);
+        MoveSplineInit(MoveSplineInit&& init) = default;
+
         ~MoveSplineInit();
         MoveSplineInit(MoveSplineInit const&) = delete;
         MoveSplineInit& operator=(MoveSplineInit const&) = delete;
@@ -74,7 +70,7 @@ namespace Movement
         /* Plays animation after movement done
          * can't be combined with parabolic movement
          */
-        void SetAnimation(AnimType anim);
+        void SetAnimation(AnimationTier anim);
 
         /* Adds final facing animation
          * sets unit's facing to specified point/angle after all path done
@@ -165,7 +161,7 @@ namespace Movement
         args.flags.EnableParabolic();
     }
 
-    inline void MoveSplineInit::SetAnimation(AnimType anim)
+    inline void MoveSplineInit::SetAnimation(AnimationTier anim)
     {
         args.time_perc = 0.f;
         args.flags.EnableAnimation((uint8)anim);

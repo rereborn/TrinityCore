@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+
 #ifndef TRINITY_SPELLDEFINES_H
 #define TRINITY_SPELLDEFINES_H
 
@@ -24,7 +25,7 @@
 class Item;
 class AuraEffect;
 
-enum SpellInterruptFlags
+enum SpellInterruptFlags : uint32
 {
     SPELL_INTERRUPT_FLAG_MOVEMENT     = 0x01, // why need this for instant?
     SPELL_INTERRUPT_FLAG_PUSH_BACK    = 0x02, // push back
@@ -35,13 +36,13 @@ enum SpellInterruptFlags
 };
 
 // See SpellAuraInterruptFlags for other values definitions
-enum SpellChannelInterruptFlags
+enum SpellChannelInterruptFlags : uint32
 {
     CHANNEL_INTERRUPT_FLAG_INTERRUPT = 0x0008,  // interrupt
     CHANNEL_FLAG_DELAY               = 0x4000
 };
 
-enum SpellAuraInterruptFlags
+enum SpellAuraInterruptFlags : uint32
 {
     AURA_INTERRUPT_FLAG_HITBYSPELL                  = 0x00000001,   // 0    removed when getting hit by a negative spell?
     AURA_INTERRUPT_FLAG_TAKE_DAMAGE                 = 0x00000002,   // 1    removed by any damage
@@ -118,7 +119,8 @@ enum SpellValueMod : uint8
     SPELLVALUE_BASE_POINT2,
     SPELLVALUE_RADIUS_MOD,
     SPELLVALUE_MAX_TARGETS,
-    SPELLVALUE_AURA_STACK
+    SPELLVALUE_AURA_STACK,
+    SPELLVALUE_CRIT_CHANCE
 };
 
 enum SpellFacingFlags
@@ -180,7 +182,7 @@ struct TC_GAME_API CastSpellExtraArgs
     struct
     {
         friend struct CastSpellExtraArgs;
-        friend class Unit;
+        friend class WorldObject;
 
         private:
             void AddMod(SpellValueMod mod, int32 val) { data.push_back({ mod, val }); }

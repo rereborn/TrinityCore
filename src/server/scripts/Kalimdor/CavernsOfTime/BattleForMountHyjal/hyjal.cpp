@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -58,9 +57,6 @@ class npc_jaina_proudmoore : public CreatureScript
         {
             npc_jaina_proudmooreAI(Creature* creature) : hyjalAI(creature)
             {
-                Reset();
-                EnterEvadeMode();
-
                 Spells[0].SpellId = SPELL_BLIZZARD;
                 Spells[0].Cooldown = urand(15000, 35000);
                 Spells[0].TargetType = TARGETTYPE_RANDOM;
@@ -74,7 +70,7 @@ class npc_jaina_proudmoore : public CreatureScript
                 Spells[2].TargetType = TARGETTYPE_SELF;
             }
 
-            bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+            bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
             {
                 uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
                 ClearGossipMenuFor(player);
@@ -99,7 +95,7 @@ class npc_jaina_proudmoore : public CreatureScript
                 return true;
             }
 
-            bool GossipHello(Player* player) override
+            bool OnGossipHello(Player* player) override
             {
                 if (EventBegun)
                     return false;
@@ -136,9 +132,6 @@ class npc_thrall : public CreatureScript
         {
             npc_thrallAI(Creature* creature) : hyjalAI(creature)
             {
-                Reset();
-                EnterEvadeMode();
-
                 Spells[0].SpellId = SPELL_CHAIN_LIGHTNING;
                 Spells[0].Cooldown = urand(3000, 8000);
                 Spells[0].TargetType = TARGETTYPE_VICTIM;
@@ -148,11 +141,11 @@ class npc_thrall : public CreatureScript
                 Spells[1].TargetType = TARGETTYPE_RANDOM;
             }
 
-            bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+            bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
             {
                 uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
                 ClearGossipMenuFor(player);
-                DeSpawnVeins();//despawn the alliance veins
+                DeSpawnVeins(); //despawn the alliance veins
                 switch (action)
                 {
                     case GOSSIP_ACTION_INFO_DEF + 1:
@@ -174,7 +167,7 @@ class npc_thrall : public CreatureScript
                 return true;
             }
 
-            bool GossipHello(Player* player) override
+            bool OnGossipHello(Player* player) override
             {
                 if (EventBegun)
                     return false;
@@ -216,11 +209,9 @@ class npc_tyrande_whisperwind : public CreatureScript
         {
             npc_tyrande_whisperwindAI(Creature* creature) : hyjalAI(creature)
             {
-                Reset();
-                EnterEvadeMode();
             }
 
-            bool GossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+            bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
             {
                 uint32 const action = player->PlayerTalkClass->GetGossipOptionAction(gossipListId);
                 ClearGossipMenuFor(player);
@@ -237,7 +228,7 @@ class npc_tyrande_whisperwind : public CreatureScript
                 return true;
             }
 
-            bool GossipHello(Player* player) override
+            bool OnGossipHello(Player* player) override
             {
                 uint32 AzgalorEvent = GetInstanceData(DATA_AZGALOREVENT);
 

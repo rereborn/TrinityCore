@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -125,9 +124,8 @@ class TC_GAME_API GameEventMgr
         bool StartEvent(uint16 event_id, bool overwrite = false);
         void StopEvent(uint16 event_id, bool overwrite = false);
         void HandleQuestComplete(uint32 quest_id);  // called on world event type quest completions
-        void HandleWorldEventGossip(Player* player, Creature* c);
         uint32 GetNPCFlag(Creature* cr);
-        uint32 GetNpcTextId(uint32 guid);
+
     private:
         void SendWorldStateUpdate(Player* player, uint16 event_id);
         void AddActiveEvent(uint16 event_id) { m_ActiveEvents.insert(event_id); }
@@ -167,7 +165,7 @@ class TC_GAME_API GameEventMgr
         typedef std::pair<ObjectGuid::LowType /*guid*/, uint32 /*npcflag*/> GuidNPCFlagPair;
         typedef std::list<GuidNPCFlagPair> NPCFlagList;
         typedef std::vector<NPCFlagList> GameEventNPCFlagMap;
-        typedef std::vector<uint32> GameEventBitmask;
+        typedef std::vector<uint32> GameEventBattlegroundMap;
         GameEventQuestMap mGameEventCreatureQuests;
         GameEventQuestMap mGameEventGameObjectQuests;
         GameEventNPCVendorMap mGameEventVendors;
@@ -176,20 +174,21 @@ class TC_GAME_API GameEventMgr
         //GameEventGuidMap  mGameEventGameobjectGuids;
         GameEventIdMap    mGameEventPoolIds;
         GameEventDataMap  mGameEvent;
-        GameEventBitmask  mGameEventBattlegroundHolidays;
+        GameEventBattlegroundMap mGameEventBattlegroundHolidays;
         QuestIdToEventConditionMap mQuestToEventConditions;
         GameEventNPCFlagMap mGameEventNPCFlags;
         ActiveEvents m_ActiveEvents;
         bool isSystemInit;
+
     public:
         GameEventGuidMap  mGameEventCreatureGuids;
         GameEventGuidMap  mGameEventGameobjectGuids;
-        std::set<uint32> modifiedHolidays;
+        std::vector<uint32> modifiedHolidays;
 };
 
 #define sGameEventMgr GameEventMgr::instance()
 
 TC_GAME_API bool IsHolidayActive(HolidayIds id);
-TC_GAME_API bool IsEventActive(uint16 event_id);
+TC_GAME_API bool IsEventActive(uint16 eventId);
 
 #endif
