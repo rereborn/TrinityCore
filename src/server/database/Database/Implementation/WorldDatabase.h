@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -28,13 +28,11 @@ enum WorldDatabaseStatements : uint32
         name for a suiting suffix.
     */
 
-    WORLD_SEL_QUEST_POOLS,
     WORLD_DEL_LINKED_RESPAWN,
     WORLD_DEL_LINKED_RESPAWN_MASTER,
     WORLD_REP_LINKED_RESPAWN,
     WORLD_SEL_CREATURE_TEXT,
     WORLD_SEL_SMART_SCRIPTS,
-    WORLD_SEL_SMARTAI_WP,
     WORLD_DEL_GAMEOBJECT,
     WORLD_DEL_EVENT_GAMEOBJECT,
     WORLD_INS_GRAVEYARD_ZONE,
@@ -48,7 +46,7 @@ enum WorldDatabaseStatements : uint32
     WORLD_UPD_CREATURE_FACTION,
     WORLD_UPD_CREATURE_NPCFLAG,
     WORLD_UPD_CREATURE_POSITION,
-    WORLD_UPD_CREATURE_SPAWN_DISTANCE,
+    WORLD_UPD_CREATURE_WANDER_DISTANCE,
     WORLD_UPD_CREATURE_SPAWN_TIME_SECS,
     WORLD_INS_CREATURE_FORMATION,
     WORLD_INS_WAYPOINT_DATA,
@@ -86,6 +84,7 @@ enum WorldDatabaseStatements : uint32
     WORLD_SEL_CREATURE_TEMPLATE,
     WORLD_SEL_WAYPOINT_SCRIPT_BY_ID,
     WORLD_SEL_ITEM_TEMPLATE_BY_NAME,
+    WORLD_SEL_ITEM_TEMPLATE_LOCALE_BY_NAME,
     WORLD_SEL_CREATURE_BY_ID,
     WORLD_SEL_GAMEOBJECT_NEAREST,
     WORLD_SEL_CREATURE_NEAREST,
@@ -100,6 +99,7 @@ enum WorldDatabaseStatements : uint32
     WORLD_UPD_CREATURE_ZONE_AREA_DATA,
     WORLD_UPD_GAMEOBJECT_ZONE_AREA_DATA,
     WORLD_DEL_SPAWNGROUP_MEMBER,
+    WORLD_DEL_GAMEOBJECT_ADDON,
 
     MAX_WORLDDATABASE_STATEMENTS
 };

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,25 +15,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* ScriptData
-SDName: Terokkar_Forest
-SD%Complete: 85
-SDComment: Quest support: 9889, 10898, 10052, 10051.
-SDCategory: Terokkar Forest
-EndScriptData */
-
-/* ContentData
-npc_unkor_the_ruthless
-npc_isla_starmane
-npc_skywing
-npc_akuno
-EndContentData */
-
 #include "ScriptMgr.h"
+#include "Containers.h"
+#include "CreatureAIImpl.h"
 #include "GameObject.h"
 #include "Group.h"
+#include "Map.h"
 #include "Player.h"
 #include "ScriptedEscortAI.h"
+#include "Spell.h"
+#include "SpellScript.h"
 #include "WorldSession.h"
 
 /*######
@@ -93,16 +83,17 @@ public:
             me->SetFaction(FACTION_FRIENDLY);
             me->SetStandState(UNIT_STAND_STATE_SIT);
             me->RemoveAllAuras();
-            me->GetThreatManager().ClearAllThreat();
             me->CombatStop(true);
+            EngagementOver();
             UnkorUnfriendly_Timer = 60000;
         }
 
-        void DamageTaken(Unit* done_by, uint32 &damage) override
+        void DamageTaken(Unit* done_by, uint32& damage, DamageEffectType /*damageType*/, SpellInfo const* /*spellInfo = nullptr*/) override
         {
-            Player* player = done_by->ToPlayer();
+            if (!done_by || !me->HealthBelowPctDamaged(30, damage))
+                return;
 
-            if (player && me->HealthBelowPctDamaged(30, damage))
+            if (Player* player = done_by->ToPlayer())
             {
                 if (Group* group = player->GetGroup())
                 {
@@ -161,230 +152,305 @@ public:
     };
 };
 
-/*######
-## npc_skywing
-######*/
-
-enum Skywing
+// 40655 - Skyguard Flare
+class spell_skyguard_flare : public SpellScript
 {
-    QUEST_SKYWING = 10898
-};
+    PrepareSpellScript(spell_skyguard_flare);
 
-class npc_skywing : public CreatureScript
-{
-public:
-    npc_skywing() : CreatureScript("npc_skywing") { }
-
-    CreatureAI* GetAI(Creature* creature) const override
+    void ModDestHeight(SpellDestination& dest)
     {
-        return new npc_skywingAI(creature);
+        dest._position.m_positionZ = GetCaster()->GetMap()->GetHeight(dest._position.GetPositionX(), dest._position.GetPositionY(), MAX_HEIGHT);
     }
 
-    struct npc_skywingAI : public EscortAI
+    void Register() override
     {
-    public:
-        npc_skywingAI(Creature* creature) : EscortAI(creature) { }
-
-        void WaypointReached(uint32 waypointId, uint32 /*pathId*/) override
-        {
-            Player* player = GetPlayerForEscort();
-            if (!player)
-                return;
-
-            switch (waypointId)
-            {
-                case 8:
-                    player->AreaExploredOrEventHappens(QUEST_SKYWING);
-                    break;
-            }
-        }
-
-        void JustEngagedWith(Unit* /*who*/) override { }
-
-        void MoveInLineOfSight(Unit* who) override
-
-        {
-            if (HasEscortState(STATE_ESCORT_ESCORTING))
-                return;
-
-            Player* player = who->ToPlayer();
-            if (player && player->GetQuestStatus(QUEST_SKYWING) == QUEST_STATUS_INCOMPLETE)
-                if (me->IsWithinDistInMap(who, 10.0f))
-                    Start(false, false, who->GetGUID());
-        }
-
-        void Reset() override { }
-
-        void UpdateAI(uint32 diff) override
-        {
-            EscortAI::UpdateAI(diff);
-        }
-    };
-};
-
-/*######
-## npc_isla_starmane
-######*/
-enum IslaStarmaneData
-{
-    SAY_PROGRESS_1               = 0,
-    SAY_PROGRESS_2               = 1,
-    SAY_PROGRESS_3               = 2,
-    SAY_PROGRESS_4               = 3,
-    GO_DISTANCE                  = 10,
-    ESCAPE_FROM_FIREWING_POINT_A = 10051,
-    ESCAPE_FROM_FIREWING_POINT_H = 10052,
-    SPELL_TRAVEL_FORM_CAT        = 32447,
-    GO_CAGE                      = 182794
-};
-
-class npc_isla_starmane : public CreatureScript
-{
-public:
-    npc_isla_starmane() : CreatureScript("npc_isla_starmane") { }
-
-    struct npc_isla_starmaneAI : public EscortAI
-    {
-        npc_isla_starmaneAI(Creature* creature) : EscortAI(creature) { }
-
-        void WaypointReached(uint32 waypointId, uint32 /*pathId*/) override
-        {
-            Player* player = GetPlayerForEscort();
-            if (!player)
-                return;
-
-            switch (waypointId)
-            {
-                case 0:
-                    if (GameObject* Cage = me->FindNearestGameObject(GO_CAGE, GO_DISTANCE))
-                        Cage->SetGoState(GO_STATE_ACTIVE);
-                    break;
-                case 2:
-                    Talk(SAY_PROGRESS_1, player);
-                    break;
-                case 5:
-                    Talk(SAY_PROGRESS_2, player);
-                    break;
-                case 6:
-                    Talk(SAY_PROGRESS_3, player);
-                    break;
-                case 29:
-                    Talk(SAY_PROGRESS_4, player);
-                    if (player->GetTeam() == ALLIANCE)
-                        player->GroupEventHappens(ESCAPE_FROM_FIREWING_POINT_A, me);
-                    else if (player->GetTeam() == HORDE)
-                        player->GroupEventHappens(ESCAPE_FROM_FIREWING_POINT_H, me);
-                    me->SetFacingToObject(player);
-                    break;
-                case 30:
-                    me->HandleEmoteCommand(EMOTE_ONESHOT_WAVE);
-                    break;
-                case 31:
-                    DoCast(me, SPELL_TRAVEL_FORM_CAT);
-                    me->SetWalk(false);
-                    break;
-            }
-        }
-
-        void Reset() override
-        {
-            me->RestoreFaction();
-        }
-
-        void JustDied(Unit* /*killer*/) override
-        {
-            if (Player* player = GetPlayerForEscort())
-            {
-                if (player->GetTeam() == ALLIANCE)
-                    player->FailQuest(ESCAPE_FROM_FIREWING_POINT_A);
-                else if (player->GetTeam() == HORDE)
-                    player->FailQuest(ESCAPE_FROM_FIREWING_POINT_H);
-            }
-        }
-
-        void QuestAccept(Player* player, Quest const* quest) override
-        {
-            if (quest->GetQuestId() == ESCAPE_FROM_FIREWING_POINT_H || quest->GetQuestId() == ESCAPE_FROM_FIREWING_POINT_A)
-            {
-                Start(true, false, player->GetGUID());
-                me->SetFaction(FACTION_ESCORTEE_N_NEUTRAL_PASSIVE);
-            }
-        }
-    };
-
-    CreatureAI* GetAI(Creature* creature) const override
-    {
-        return new npc_isla_starmaneAI(creature);
+        OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_skyguard_flare::ModDestHeight, EFFECT_0, TARGET_DEST_TARGET_RANDOM);
     }
 };
 
-/*########
-####npc_akuno
-#####*/
+/*######
+## Quest 10873: Taken in the Night
+######*/
 
-enum Akuno
+enum TakenInTheNight
 {
-    QUEST_ESCAPING_THE_TOMB = 10887,
-    NPC_CABAL_SKRIMISHER    = 21661
+    SPELL_FREE_WEBBED_1      = 38953,
+    SPELL_FREE_WEBBED_2      = 38955,
+    SPELL_FREE_WEBBED_3      = 38956,
+    SPELL_FREE_WEBBED_4      = 38957,
+    SPELL_FREE_WEBBED_5      = 38958,
+    SPELL_FREE_WEBBED_6      = 38978
 };
 
-class npc_akuno : public CreatureScript
+std::array<uint32, 5> const CocoonSummonSpells =
 {
+    SPELL_FREE_WEBBED_1, SPELL_FREE_WEBBED_2, SPELL_FREE_WEBBED_3, SPELL_FREE_WEBBED_4, SPELL_FREE_WEBBED_5
+};
+
+// 38949 - Terrokar Free Webbed Creature
+class spell_terokkar_free_webbed : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_free_webbed);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo(CocoonSummonSpells);
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), Trinity::Containers::SelectRandomContainerElement(CocoonSummonSpells), true);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_terokkar_free_webbed::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 38950 - Terokkar Free Webbed Creature ON QUEST
+class spell_terokkar_free_webbed_on_quest : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_free_webbed_on_quest);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo(CocoonSummonSpells) && ValidateSpellInfo({ SPELL_FREE_WEBBED_6 });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+
+        if (roll_chance_i(66))
+            caster->CastSpell(caster, Trinity::Containers::SelectRandomContainerElement(CocoonSummonSpells), true);
+        else
+            target->CastSpell(caster, SPELL_FREE_WEBBED_6, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_terokkar_free_webbed_on_quest::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+/*######
+## Quest 10040 & 10041: Who Are They?
+######*/
+
+enum WhoAreThey
+{
+    SPELL_SHADOWY_DISGUISE          = 32756,
+    SPELL_MALE_SHADOWY_DISGUISE     = 38080,
+    SPELL_FEMALE_SHADOWY_DISGUISE   = 38081
+};
+
+// 48917 - Who Are They: Cast from Questgiver
+class spell_terokkar_shadowy_disguise_cast_from_questgiver : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_shadowy_disguise_cast_from_questgiver);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHADOWY_DISGUISE });
+    }
+
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        GetHitUnit()->CastSpell(GetHitUnit(), SPELL_SHADOWY_DISGUISE);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_terokkar_shadowy_disguise_cast_from_questgiver::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+// 32756 - Shadowy Disguise
+class spell_terokkar_shadowy_disguise : public AuraScript
+{
+    PrepareAuraScript(spell_terokkar_shadowy_disguise);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_MALE_SHADOWY_DISGUISE, SPELL_FEMALE_SHADOWY_DISGUISE });
+    }
+
+    void AfterApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (Player* target = GetTarget()->ToPlayer())
+            target->CastSpell(target, target->GetNativeGender() == GENDER_MALE ? SPELL_MALE_SHADOWY_DISGUISE : SPELL_FEMALE_SHADOWY_DISGUISE);
+    }
+
+    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        target->RemoveAurasDueToSpell(SPELL_MALE_SHADOWY_DISGUISE);
+        target->RemoveAurasDueToSpell(SPELL_FEMALE_SHADOWY_DISGUISE);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_terokkar_shadowy_disguise::AfterApply, EFFECT_0, SPELL_AURA_FORCE_REACTION, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectApplyFn(spell_terokkar_shadowy_disguise::AfterRemove, EFFECT_0, SPELL_AURA_FORCE_REACTION, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 32780 - Cancel Shadowy Disguise
+class spell_terokkar_cancel_shadowy_disguise : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_cancel_shadowy_disguise);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHADOWY_DISGUISE });
+    }
+
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        GetHitUnit()->RemoveAurasDueToSpell(SPELL_SHADOWY_DISGUISE);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_terokkar_cancel_shadowy_disguise::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+enum Translocation
+{
+    SPELL_TRANSLOCATION_FIREWING_POINT_BUILDING_DOWN     = 32572,
+    SPELL_TRANSLOCATION_FIREWING_POINT_BUILDING_UP       = 32568,
+    SPELL_TRANSLOCATION_FIREWING_POINT_TOWER_DOWN        = 32569,
+    SPELL_TRANSLOCATION_FIREWING_POINT_TOWER_UP          = 32571
+};
+
+// 25143 - Translocate
+// 29128 - Translocate
+// 29129 - Translocate
+// 25140 - Translocate
+class spell_terokkar_translocation_firewing_point : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_translocation_firewing_point);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ _triggeredSpellId });
+    }
+
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        GetHitUnit()->CastSpell(GetHitUnit(), _triggeredSpellId);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_terokkar_translocation_firewing_point::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+
+    uint32 _triggeredSpellId;
+
 public:
-    npc_akuno() : CreatureScript("npc_akuno") { }
+    explicit spell_terokkar_translocation_firewing_point(Translocation triggeredSpellId) : _triggeredSpellId(triggeredSpellId) { }
+};
 
-    struct npc_akunoAI : public EscortAI
+/*######
+## Quest 10929: Fumping / 10930: The Big Bone Worm
+######*/
+
+enum Fumping
+{
+    SPELL_SUMMON_SAND_GNOME    = 39240,
+    SPELL_SUMMON_BONE_SLICER   = 39241,
+
+    SPELL_SUMMON_SAND_GNOME_1  = 39247,
+    SPELL_SUMMON_BONE_SLICER_1 = 39245,
+    SPELL_SUMMON_HAISHULUD     = 39248,
+    SPELL_DESPAWN_CLEFTHOOF    = 39250
+};
+
+// 39238 - Fumping
+class spell_terokkar_fumping : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_fumping);
+
+    bool Validate(SpellInfo const* /*spell*/) override
     {
-        npc_akunoAI(Creature* creature) : EscortAI(creature) { }
+        return ValidateSpellInfo({ SPELL_SUMMON_SAND_GNOME, SPELL_SUMMON_BONE_SLICER });
+    }
 
-        void WaypointReached(uint32 waypointId, uint32 /*pathId*/) override
-        {
-            Player* player = GetPlayerForEscort();
-            if (!player)
-                return;
-
-            switch (waypointId)
-            {
-                case 3:
-                    me->SummonCreature(NPC_CABAL_SKRIMISHER, -2795.99f, 5420.33f, -34.53f, 0.0f, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 25000);
-                    me->SummonCreature(NPC_CABAL_SKRIMISHER, -2793.55f, 5412.79f, -34.53f, 0.0f, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 25000);
-                    break;
-                case 11:
-                    if (player->GetTypeId() == TYPEID_PLAYER)
-                        player->GroupEventHappens(QUEST_ESCAPING_THE_TOMB, me);
-                    break;
-            }
-        }
-
-        void JustSummoned(Creature* summon) override
-        {
-            summon->AI()->AttackStart(me);
-        }
-
-        void QuestAccept(Player* player, Quest const* quest) override
-        {
-            if (quest->GetQuestId() == QUEST_ESCAPING_THE_TOMB)
-            {
-                Start(false, false, player->GetGUID());
-
-                if (player->GetTeamId() == TEAM_ALLIANCE)
-                    me->SetFaction(FACTION_ESCORTEE_A_NEUTRAL_PASSIVE);
-                else
-                    me->SetFaction(FACTION_ESCORTEE_H_NEUTRAL_PASSIVE);
-            }
-        }
-    };
-
-    CreatureAI* GetAI(Creature* creature) const override
+    void SetDest(SpellDestination& dest)
     {
-        return new npc_akunoAI(creature);
+        Position const offset = { 0.5f, 0.5f, 5.0f, 0.0f };
+        dest.RelocateOffset(offset);
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), RAND(SPELL_SUMMON_SAND_GNOME, SPELL_SUMMON_BONE_SLICER), true);
+    }
+
+    void Register() override
+    {
+        OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_terokkar_fumping::SetDest, EFFECT_1, TARGET_DEST_CASTER);
+        OnEffectHit += SpellEffectFn(spell_terokkar_fumping::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 39246 - Fumping
+class spell_terokkar_fumping_the_big_bone_worm : public SpellScript
+{
+    PrepareSpellScript(spell_terokkar_fumping_the_big_bone_worm);
+
+    bool Validate(SpellInfo const* /*spell*/) override
+    {
+        return ValidateSpellInfo(
+        {
+            SPELL_SUMMON_SAND_GNOME_1,
+            SPELL_SUMMON_BONE_SLICER_1,
+            SPELL_SUMMON_HAISHULUD,
+            SPELL_DESPAWN_CLEFTHOOF
+        });
+    }
+
+    void SetDest(SpellDestination& dest)
+    {
+        Position const offset = { 0.5f, 0.5f, 5.0f, 0.0f };
+        dest.RelocateOffset(offset);
+    }
+
+    void HandleSummon(SpellEffIndex /*effIndex*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), RAND(SPELL_SUMMON_SAND_GNOME_1, SPELL_SUMMON_BONE_SLICER_1, SPELL_SUMMON_HAISHULUD), true);
+    }
+
+    void HandleDespawn(SpellEffIndex /*effIndex*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_DESPAWN_CLEFTHOOF, true);
+    }
+
+    void Register() override
+    {
+        OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_terokkar_fumping_the_big_bone_worm::SetDest, EFFECT_1, TARGET_DEST_CASTER);
+        OnEffectHit += SpellEffectFn(spell_terokkar_fumping_the_big_bone_worm::HandleSummon, EFFECT_1, SPELL_EFFECT_DUMMY);
+        OnEffectHit += SpellEffectFn(spell_terokkar_fumping_the_big_bone_worm::HandleDespawn, EFFECT_2, SPELL_EFFECT_DUMMY);
     }
 };
 
 void AddSC_terokkar_forest()
 {
     new npc_unkor_the_ruthless();
-    new npc_isla_starmane();
-    new npc_skywing();
-    new npc_akuno();
+    RegisterSpellScript(spell_skyguard_flare);
+    RegisterSpellScript(spell_terokkar_free_webbed);
+    RegisterSpellScript(spell_terokkar_free_webbed_on_quest);
+    RegisterSpellScript(spell_terokkar_shadowy_disguise_cast_from_questgiver);
+    RegisterSpellScript(spell_terokkar_shadowy_disguise);
+    RegisterSpellScript(spell_terokkar_cancel_shadowy_disguise);
+    RegisterSpellScriptWithArgs(spell_terokkar_translocation_firewing_point, "spell_terokkar_translocation_firewing_point_building_down", SPELL_TRANSLOCATION_FIREWING_POINT_BUILDING_DOWN);
+    RegisterSpellScriptWithArgs(spell_terokkar_translocation_firewing_point, "spell_terokkar_translocation_firewing_point_building_up", SPELL_TRANSLOCATION_FIREWING_POINT_BUILDING_UP);
+    RegisterSpellScriptWithArgs(spell_terokkar_translocation_firewing_point, "spell_terokkar_translocation_firewing_point_tower_down", SPELL_TRANSLOCATION_FIREWING_POINT_TOWER_DOWN);
+    RegisterSpellScriptWithArgs(spell_terokkar_translocation_firewing_point, "spell_terokkar_translocation_firewing_point_tower_up", SPELL_TRANSLOCATION_FIREWING_POINT_TOWER_UP);
+    RegisterSpellScript(spell_terokkar_fumping);
+    RegisterSpellScript(spell_terokkar_fumping_the_big_bone_worm);
 }

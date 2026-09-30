@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -29,12 +28,13 @@
 #include "World.h"
 #include "Corpse.h"
 #include "ObjectMgr.h"
-#include "Language.h"
 #include "WorldPacket.h"
 #include "Group.h"
 #include "Player.h"
 #include "WorldSession.h"
 #include "Opcodes.h"
+#include "ScriptMgr.h"
+#include <numeric>
 
 MapManager::MapManager()
     : _nextInstanceId(0), _scheduledScripts(0)
@@ -87,7 +87,11 @@ Map* MapManager::CreateBaseMap(uint32 id)
             map->LoadCorpseData();
         }
 
-        i_maps[id] = map;
+        Trinity::unique_trackable_ptr<Map>& ptr = i_maps[id];
+        ptr.reset(map);
+        map->SetWeakPtr(ptr);
+
+        sScriptMgr->OnCreateMap(map);
     }
 
     ASSERT(map);
@@ -137,10 +141,11 @@ Map::EnterState MapManager::PlayerCannotEnter(uint32 mapid, Player* player, bool
     if (!instance)
         return Map::CANNOT_ENTER_UNINSTANCED_DUNGEON;
 
+    Group* group = player->GetGroup();
     Difficulty targetDifficulty, requestedDifficulty;
-    targetDifficulty = requestedDifficulty = player->GetDifficulty(entry->IsRaid());
+    targetDifficulty = requestedDifficulty = group ? group->GetDifficultyID(entry) : player->GetDifficultyID(entry);
     // Get the highest available difficulty if current setting is higher than the instance allows
-    MapDifficulty const* mapDiff = GetDownscaledMapDifficultyData(entry->MapID, targetDifficulty);
+    MapDifficultyEntry const* mapDiff = GetDownscaledMapDifficultyData(entry->ID, targetDifficulty);
     if (!mapDiff)
         return Map::CANNOT_ENTER_DIFFICULTY_UNAVAILABLE;
 
@@ -148,9 +153,8 @@ Map::EnterState MapManager::PlayerCannotEnter(uint32 mapid, Player* player, bool
     if (player->IsGameMaster())
         return Map::CAN_ENTER;
 
-    char const* mapName = entry->name[player->GetSession()->GetSessionDbcLocale()];
+    char const* mapName = entry->MapName[player->GetSession()->GetSessionDbcLocale()];
 
-    Group* group = player->GetGroup();
     if (entry->IsRaid()) // can only enter in a raid group
         if ((!group || !group->isRaidGroup()) && !sWorld->getBoolConfig(CONFIG_INSTANCE_IGNORE_RAID))
             return Map::CANNOT_ENTER_NOT_IN_RAID;
@@ -173,10 +177,13 @@ Map::EnterState MapManager::PlayerCannotEnter(uint32 mapid, Player* player, bool
             if (!corpseMap)
                 return Map::CANNOT_ENTER_CORPSE_IN_DIFFERENT_INSTANCE;
 
-            TC_LOG_DEBUG("maps", "MAP: Player '%s' has corpse in instance '%s' and can enter.", player->GetName().c_str(), mapName);
+            TC_LOG_DEBUG("maps", "MAP: Player '{}' has corpse in instance '{}' and can enter.", player->GetName(), mapName);
         }
         else
-            TC_LOG_DEBUG("maps", "Map::CanPlayerEnter - player '%s' is dead but does not have a corpse!", player->GetName().c_str());
+        {
+            TC_LOG_DEBUG("maps", "Map::CanPlayerEnter - player '{}' is dead but does not have a corpse!", player->GetName());
+            return Map::CANNOT_ENTER_CORPSE_IN_DIFFERENT_INSTANCE;
+        }
     }
 
     //Get instance where player's group is bound & its map
@@ -193,19 +200,19 @@ Map::EnterState MapManager::PlayerCannotEnter(uint32 mapid, Player* player, bool
     if (entry->IsDungeon() && (!player->GetGroup() || (player->GetGroup() && !player->GetGroup()->isLFGGroup())))
     {
         uint32 instanceIdToCheck = 0;
-        if (InstanceSave* save = player->GetInstanceSave(mapid, entry->IsRaid()))
+        if (InstanceSave* save = player->GetInstanceSave(mapid))
             instanceIdToCheck = save->GetInstanceId();
 
         // instanceId can never be 0 - will not be found
-        if (!player->CheckInstanceCount(instanceIdToCheck) && !player->isDead())
+        if (!player->GetSession()->UpdateAndCheckInstanceCount(instanceIdToCheck) && !player->isDead())
             return Map::CANNOT_ENTER_TOO_MANY_INSTANCES;
     }
 
     //Other requirements
-    if (player->Satisfy(sObjectMgr->GetAccessRequirement(mapid, targetDifficulty), mapid, true))
-        return Map::CAN_ENTER;
-    else
+    if (!player->Satisfy(sObjectMgr->GetAccessRequirement(mapid, targetDifficulty), mapid, true))
         return Map::CANNOT_ENTER_UNSPECIFIED_REASON;
+
+    return Map::CAN_ENTER;
 }
 
 void MapManager::Update(uint32 diff)
@@ -257,12 +264,16 @@ bool MapManager::IsValidMAP(uint32 mapid, bool startUp)
 
 void MapManager::UnloadAll()
 {
-    for (MapMapType::iterator iter = i_maps.begin(); iter != i_maps.end();)
+    // first unload maps
+    for (auto iter = i_maps.begin(); iter != i_maps.end(); ++iter)
     {
         iter->second->UnloadAll();
-        delete iter->second;
-        i_maps.erase(iter++);
+
+        sScriptMgr->OnDestroyMap(iter->second.get());
     }
+
+    // then delete them
+    i_maps.clear();
 
     if (m_updater.activated())
         m_updater.deactivate();
@@ -275,14 +286,12 @@ uint32 MapManager::GetNumInstances()
     std::lock_guard<std::mutex> lock(_mapsLock);
 
     uint32 ret = 0;
-    for (MapMapType::iterator itr = i_maps.begin(); itr != i_maps.end(); ++itr)
+    for (auto const& [_, map] : i_maps)
     {
-        Map* map = itr->second;
-        if (!map->Instanceable())
+        MapInstanced* mapInstanced = map->ToMapInstanced();
+        if (!mapInstanced)
             continue;
-        MapInstanced::InstancedMaps &maps = ((MapInstanced*)map)->GetInstancedMaps();
-        for (MapInstanced::InstancedMaps::iterator mitr = maps.begin(); mitr != maps.end(); ++mitr)
-            if (mitr->second->IsDungeon()) ret++;
+        ret += mapInstanced->GetInstancedMaps().size();
     }
     return ret;
 }
@@ -292,15 +301,13 @@ uint32 MapManager::GetNumPlayersInInstances()
     std::lock_guard<std::mutex> lock(_mapsLock);
 
     uint32 ret = 0;
-    for (MapMapType::iterator itr = i_maps.begin(); itr != i_maps.end(); ++itr)
+    for (auto& [_, map] : i_maps)
     {
-        Map* map = itr->second;
-        if (!map->Instanceable())
+        MapInstanced* mapInstanced = map->ToMapInstanced();
+        if (!mapInstanced)
             continue;
-        MapInstanced::InstancedMaps &maps = ((MapInstanced*)map)->GetInstancedMaps();
-        for (MapInstanced::InstancedMaps::iterator mitr = maps.begin(); mitr != maps.end(); ++mitr)
-            if (mitr->second->IsDungeon())
-                ret += ((InstanceMap*)mitr->second)->GetPlayers().getSize();
+        MapInstanced::InstancedMaps& maps = mapInstanced->GetInstancedMaps();
+        ret += std::accumulate(maps.begin(), maps.end(), 0u, [](uint32 total, MapInstanced::InstancedMaps::value_type const& value) { return total + value.second->GetPlayers().getSize(); });
     }
     return ret;
 }
@@ -342,7 +349,7 @@ uint32 MapManager::GenerateInstanceId()
     ASSERT(newInstanceId < _freeInstanceIds.size());
     _freeInstanceIds[newInstanceId] = false;
 
-    // Find the lowest available id starting from the current NextInstanceId (which should be the lowest according to the logic in FreeInstanceId()
+    // Find the lowest available id starting from the current NextInstanceId (which should be the lowest according to the logic in FreeInstanceId())
     size_t nextFreedId = _freeInstanceIds.find_next(_nextInstanceId++);
     if (nextFreedId == InstanceIds::npos)
     {

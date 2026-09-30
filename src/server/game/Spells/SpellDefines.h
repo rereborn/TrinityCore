@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -14,17 +14,34 @@
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+
 #ifndef TRINITY_SPELLDEFINES_H
 #define TRINITY_SPELLDEFINES_H
 
 #include "Define.h"
 #include "ObjectGuid.h"
+#include "Optional.h"
+#include "Position.h"
 #include <vector>
 
-class Item;
 class AuraEffect;
+class Corpse;
+class GameObject;
+class Item;
+class Player;
+class Unit;
+class WorldObject;
 
-enum SpellInterruptFlags
+namespace WorldPackets
+{
+    namespace Spells
+    {
+        struct SpellCastRequest;
+        struct SpellTargetData;
+    }
+}
+
+enum SpellInterruptFlags : uint32
 {
     SPELL_INTERRUPT_FLAG_MOVEMENT     = 0x01, // why need this for instant?
     SPELL_INTERRUPT_FLAG_PUSH_BACK    = 0x02, // push back
@@ -35,13 +52,13 @@ enum SpellInterruptFlags
 };
 
 // See SpellAuraInterruptFlags for other values definitions
-enum SpellChannelInterruptFlags
+enum SpellChannelInterruptFlags : uint32
 {
     CHANNEL_INTERRUPT_FLAG_INTERRUPT = 0x0008,  // interrupt
     CHANNEL_FLAG_DELAY               = 0x4000
 };
 
-enum SpellAuraInterruptFlags
+enum SpellAuraInterruptFlags : uint32
 {
     AURA_INTERRUPT_FLAG_HITBYSPELL                  = 0x00000001,   // 0    removed when getting hit by a negative spell?
     AURA_INTERRUPT_FLAG_TAKE_DAMAGE                 = 0x00000002,   // 1    removed by any damage
@@ -53,8 +70,8 @@ enum SpellAuraInterruptFlags
     AURA_INTERRUPT_FLAG_NOT_ABOVEWATER              = 0x00000080,   // 7    removed by entering water
     AURA_INTERRUPT_FLAG_NOT_UNDERWATER              = 0x00000100,   // 8    removed by leaving water
     AURA_INTERRUPT_FLAG_NOT_SHEATHED                = 0x00000200,   // 9    removed by unsheathing
-    AURA_INTERRUPT_FLAG_TALK                        = 0x00000400,   // 10   talk to npc / loot? action on creature
-    AURA_INTERRUPT_FLAG_USE                         = 0x00000800,   // 11   mine/use/open action on gameobject
+    AURA_INTERRUPT_FLAG_TALK                        = 0x00000400,   // 10   talk to npc / interact?
+    AURA_INTERRUPT_FLAG_LOOTING                     = 0x00000800,   // 11   mine/use/open action on gameobject / loot
     AURA_INTERRUPT_FLAG_MELEE_ATTACK                = 0x00001000,   // 12   removed by attacking
     AURA_INTERRUPT_FLAG_SPELL_ATTACK                = 0x00002000,   // 13   ???
     AURA_INTERRUPT_FLAG_UNK14                       = 0x00004000,   // 14
@@ -118,7 +135,8 @@ enum SpellValueMod : uint8
     SPELLVALUE_BASE_POINT2,
     SPELLVALUE_RADIUS_MOD,
     SPELLVALUE_MAX_TARGETS,
-    SPELLVALUE_AURA_STACK
+    SPELLVALUE_AURA_STACK,
+    SPELLVALUE_CRIT_CHANCE
 };
 
 enum SpellFacingFlags
@@ -152,7 +170,171 @@ enum TriggerCastFlags : uint32
 
     // debug flags (used with .cast triggered commands)
     TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT      = 0x00080000,   //! Will ignore equipped item requirements
+    TRIGGERED_IGNORE_TARGET_CHECK                   = 0x00100000,   //! Will ignore most target checks (mostly DBC target checks)
     TRIGGERED_FULL_DEBUG_MASK                       = 0xFFFFFFFF
+};
+
+DEFINE_ENUM_FLAG(TriggerCastFlags);
+
+enum SpellCastTargetFlags : uint32
+{
+    TARGET_FLAG_NONE            = 0x00000000,
+    TARGET_FLAG_UNUSED_1        = 0x00000001,               // not used
+    TARGET_FLAG_UNIT            = 0x00000002,               // pguid
+    TARGET_FLAG_UNIT_RAID       = 0x00000004,               // not sent, used to validate target (if raid member)
+    TARGET_FLAG_UNIT_PARTY      = 0x00000008,               // not sent, used to validate target (if party member)
+    TARGET_FLAG_ITEM            = 0x00000010,               // pguid
+    TARGET_FLAG_SOURCE_LOCATION = 0x00000020,               // pguid, 3 float
+    TARGET_FLAG_DEST_LOCATION   = 0x00000040,               // pguid, 3 float
+    TARGET_FLAG_UNIT_ENEMY      = 0x00000080,               // not sent, used to validate target (if enemy)
+    TARGET_FLAG_UNIT_ALLY       = 0x00000100,               // not sent, used to validate target (if ally)
+    TARGET_FLAG_CORPSE_ENEMY    = 0x00000200,               // pguid
+    TARGET_FLAG_UNIT_DEAD       = 0x00000400,               // not sent, used to validate target (if dead creature)
+    TARGET_FLAG_GAMEOBJECT      = 0x00000800,               // pguid, used with TARGET_GAMEOBJECT_TARGET
+    TARGET_FLAG_TRADE_ITEM      = 0x00001000,               // pguid
+    TARGET_FLAG_STRING          = 0x00002000,               // string
+    TARGET_FLAG_GAMEOBJECT_ITEM = 0x00004000,               // not sent, used with TARGET_GAMEOBJECT_ITEM_TARGET
+    TARGET_FLAG_CORPSE_ALLY     = 0x00008000,               // pguid
+    TARGET_FLAG_UNIT_MINIPET    = 0x00010000,               // pguid, used to validate target (if non combat pet)
+    TARGET_FLAG_GLYPH_SLOT      = 0x00020000,               // used in glyph spells
+    TARGET_FLAG_DEST_TARGET     = 0x00040000,               // sometimes appears with DEST_TARGET spells (may appear or not for a given spell)
+    TARGET_FLAG_UNUSED20        = 0x00080000,               // uint32 counter, loop { vec3 - screen position (?), guid }, not used so far
+    TARGET_FLAG_UNIT_PASSENGER  = 0x00100000,               // guessed, used to validate target (if vehicle passenger)
+
+    TARGET_FLAG_UNIT_MASK = TARGET_FLAG_UNIT | TARGET_FLAG_UNIT_RAID | TARGET_FLAG_UNIT_PARTY
+        | TARGET_FLAG_UNIT_ENEMY | TARGET_FLAG_UNIT_ALLY | TARGET_FLAG_UNIT_DEAD | TARGET_FLAG_UNIT_MINIPET | TARGET_FLAG_UNIT_PASSENGER,
+    TARGET_FLAG_GAMEOBJECT_MASK = TARGET_FLAG_GAMEOBJECT | TARGET_FLAG_GAMEOBJECT_ITEM,
+    TARGET_FLAG_CORPSE_MASK = TARGET_FLAG_CORPSE_ALLY | TARGET_FLAG_CORPSE_ENEMY,
+    TARGET_FLAG_ITEM_MASK = TARGET_FLAG_TRADE_ITEM | TARGET_FLAG_ITEM | TARGET_FLAG_GAMEOBJECT_ITEM
+};
+
+struct TC_GAME_API SpellDestination
+{
+    SpellDestination();
+    SpellDestination(float x, float y, float z, float orientation = 0.0f, uint32 mapId = MAPID_INVALID);
+    SpellDestination(Position const& pos);
+    SpellDestination(WorldObject const& wObj);
+
+    void Relocate(Position const& pos);
+    void RelocateOffset(Position const& offset);
+
+    WorldLocation _position;
+    ObjectGuid _transportGUID;
+    Position _transportOffset;
+};
+
+class TC_GAME_API SpellCastTargets
+{
+public:
+    SpellCastTargets();
+    SpellCastTargets(Unit* caster, WorldPackets::Spells::SpellCastRequest const& spellCastRequest);
+    ~SpellCastTargets();
+
+    void Read(ByteBuffer& data, Unit* caster);
+    void Write(WorldPackets::Spells::SpellTargetData& data);
+
+    uint32 GetTargetMask() const { return m_targetMask; }
+    void SetTargetMask(uint32 newMask) { m_targetMask = newMask; }
+
+    void SetTargetFlag(SpellCastTargetFlags flag) { m_targetMask |= flag; }
+
+    ObjectGuid GetUnitTargetGUID() const;
+    Unit* GetUnitTarget() const;
+    void SetUnitTarget(Unit* target);
+
+    ObjectGuid GetGOTargetGUID() const;
+    GameObject* GetGOTarget() const;
+    void SetGOTarget(GameObject* target);
+
+    ObjectGuid GetCorpseTargetGUID() const;
+    Corpse* GetCorpseTarget() const;
+
+    WorldObject* GetObjectTarget() const;
+    ObjectGuid GetObjectTargetGUID() const;
+    void RemoveObjectTarget();
+
+    ObjectGuid GetItemTargetGUID() const { return m_itemTargetGUID; }
+    Item* GetItemTarget() const { return m_itemTarget; }
+    uint32 GetItemTargetEntry() const { return m_itemTargetEntry; }
+    void SetItemTarget(Item* item);
+    void SetTradeItemTarget(Player* caster);
+    void UpdateTradeSlotItem();
+
+    SpellDestination const* GetSrc() const;
+    Position const* GetSrcPos() const;
+    void SetSrc(float x, float y, float z);
+    void SetSrc(Position const& pos);
+    void SetSrc(WorldObject const& wObj);
+    void ModSrc(Position const& pos);
+    void RemoveSrc();
+
+    SpellDestination const* GetDst() const;
+    WorldLocation const* GetDstPos() const;
+    void SetDst(float x, float y, float z, float orientation, uint32 mapId = MAPID_INVALID);
+    void SetDst(Position const& pos);
+    void SetDst(WorldObject const& wObj);
+    void SetDst(SpellDestination const& spellDest);
+    void SetDst(SpellCastTargets const& spellTargets);
+    void ModDst(Position const& pos);
+    void ModDst(SpellDestination const& spellDest);
+    void RemoveDst();
+
+    bool HasSrc() const;
+    bool HasDst() const;
+    bool HasTraj() const { return m_speed != 0; }
+
+    float GetPitch() const { return m_pitch; }
+    void SetPitch(float pitch) { m_pitch = pitch; }
+    float GetSpeed() const { return m_speed; }
+    void SetSpeed(float speed) { m_speed = speed; }
+
+    float GetDist2d() const { return m_src._position.GetExactDist2d(&m_dst._position); }
+    float GetSpeedXY() const { return m_speed * std::cos(m_pitch); }
+    float GetSpeedZ() const { return m_speed * std::sin(m_pitch); }
+
+    void Update(WorldObject* caster);
+    std::string const& GetTargetString() const { return m_strTarget; }
+
+private:
+    uint32 m_targetMask;
+
+    // objects (can be used at spell creating and after Update at casting)
+    WorldObject* m_objectTarget;
+    Item* m_itemTarget;
+
+    // object GUID/etc, can be used always
+    ObjectGuid m_objectTargetGUID;
+    ObjectGuid m_itemTargetGUID;
+    uint32 m_itemTargetEntry;
+
+    SpellDestination m_src;
+    SpellDestination m_dst;
+
+    float m_pitch, m_speed;
+    std::string m_strTarget;
+};
+
+struct TC_GAME_API CastSpellTargetArg
+{
+    CastSpellTargetArg() { Targets.emplace(); }
+    CastSpellTargetArg(std::nullptr_t) { Targets.emplace(); }
+    CastSpellTargetArg(WorldObject* target);
+    CastSpellTargetArg(Item* itemTarget)
+    {
+        Targets.emplace();
+        Targets->SetItemTarget(itemTarget);
+    }
+    CastSpellTargetArg(Position const& dest)
+    {
+        Targets.emplace();
+        Targets->SetDst(dest);
+    }
+    CastSpellTargetArg(SpellCastTargets&& targets)
+    {
+        Targets.emplace(std::move(targets));
+    }
+
+    Optional<SpellCastTargets> Targets; // empty optional used to signal error state
 };
 
 struct TC_GAME_API CastSpellExtraArgs
@@ -180,7 +362,7 @@ struct TC_GAME_API CastSpellExtraArgs
     struct
     {
         friend struct CastSpellExtraArgs;
-        friend class Unit;
+        friend class WorldObject;
 
         private:
             void AddMod(SpellValueMod mod, int32 val) { data.push_back({ mod, val }); }

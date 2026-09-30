@@ -1,7 +1,12 @@
 #ifndef JEMALLOC_INTERNAL_ATOMIC_GCC_SYNC_H
 #define JEMALLOC_INTERNAL_ATOMIC_GCC_SYNC_H
 
-#define ATOMIC_INIT(...) {__VA_ARGS__}
+#include "jemalloc/internal/jemalloc_preamble.h"
+
+#define ATOMIC_INLINE JEMALLOC_ALWAYS_INLINE
+
+#define ATOMIC_INIT(...)                                                       \
+	{ __VA_ARGS__ }
 
 typedef enum {
 	atomic_memory_order_relaxed,
@@ -25,11 +30,13 @@ atomic_fence(atomic_memory_order_t mo) {
 		return;
 	}
 	asm volatile("" ::: "memory");
-#  if defined(__i386__) || defined(__x86_64__)
+#if defined(__i386__) || defined(__x86_64__)
 	/* This is implicit on x86. */
-#  elif defined(__ppc__)
+#elif defined(__ppc64__)
 	asm volatile("lwsync");
-#  elif defined(__sparc__) && defined(__arch64__)
+#elif defined(__ppc__)
+	asm volatile("sync");
+#elif defined(__sparc__) && defined(__arch64__)
 	if (mo == atomic_memory_order_acquire) {
 		asm volatile("membar #LoadLoad | #LoadStore");
 	} else if (mo == atomic_memory_order_release) {
@@ -37,9 +44,9 @@ atomic_fence(atomic_memory_order_t mo) {
 	} else {
 		asm volatile("membar #LoadLoad | #LoadStore | #StoreStore");
 	}
-#  else
+#else
 	__sync_synchronize();
-#  endif
+#endif
 	asm volatile("" ::: "memory");
 }
 
@@ -62,25 +69,25 @@ atomic_fence(atomic_memory_order_t mo) {
 
 ATOMIC_INLINE void
 atomic_pre_sc_load_fence() {
-#  if defined(__i386__) || defined(__x86_64__) ||			\
-    (defined(__sparc__) && defined(__arch64__))
+#if defined(__i386__) || defined(__x86_64__)                                   \
+    || (defined(__sparc__) && defined(__arch64__))
 	atomic_fence(atomic_memory_order_relaxed);
-#  else
+#else
 	atomic_fence(atomic_memory_order_seq_cst);
-#  endif
+#endif
 }
 
 ATOMIC_INLINE void
 atomic_post_sc_store_fence() {
-#  if defined(__i386__) || defined(__x86_64__) ||			\
-    (defined(__sparc__) && defined(__arch64__))
+#if defined(__i386__) || defined(__x86_64__)                                   \
+    || (defined(__sparc__) && defined(__arch64__))
 	atomic_fence(atomic_memory_order_seq_cst);
-#  else
+#else
 	atomic_fence(atomic_memory_order_relaxed);
-#  endif
-
+#endif
 }
 
+/* clang-format off */
 #define JEMALLOC_GENERATE_ATOMICS(type, short_type,			\
     /* unused */ lg_size)						\
 typedef struct {							\
@@ -113,8 +120,8 @@ atomic_store_##short_type(atomic_##short_type##_t *a,			\
 }									\
 									\
 ATOMIC_INLINE type							\
-atomic_exchange_##short_type(atomic_##short_type##_t *a, type val,	\
-    atomic_memory_order_t mo) {						\
+atomic_exchange_##short_type(atomic_##short_type##_t *a, type val, \
+    atomic_memory_order_t mo) {                  					 \
 	/*								\
 	 * Because of FreeBSD, we care about gcc 4.2, which doesn't have\
 	 * an atomic exchange builtin.  We fake it with a CAS loop.	\
@@ -129,8 +136,9 @@ atomic_exchange_##short_type(atomic_##short_type##_t *a, type val,	\
 									\
 ATOMIC_INLINE bool							\
 atomic_compare_exchange_weak_##short_type(atomic_##short_type##_t *a,	\
-    type *expected, type desired, atomic_memory_order_t success_mo,	\
-    atomic_memory_order_t failure_mo) {					\
+    type *expected, type desired,                                     \
+    atomic_memory_order_t success_mo,                          \
+    atomic_memory_order_t failure_mo) {				                \
 	type prev = __sync_val_compare_and_swap(&a->repr, *expected,	\
 	    desired);							\
 	if (prev == *expected) {					\
@@ -142,8 +150,9 @@ atomic_compare_exchange_weak_##short_type(atomic_##short_type##_t *a,	\
 }									\
 ATOMIC_INLINE bool							\
 atomic_compare_exchange_strong_##short_type(atomic_##short_type##_t *a,	\
-    type *expected, type desired, atomic_memory_order_t success_mo,	\
-    atomic_memory_order_t failure_mo) {					\
+    type *expected, type desired,                                       \
+    atomic_memory_order_t success_mo,                            \
+    atomic_memory_order_t failure_mo) {                          \
 	type prev = __sync_val_compare_and_swap(&a->repr, *expected,	\
 	    desired);							\
 	if (prev == *expected) {					\
@@ -153,39 +162,36 @@ atomic_compare_exchange_strong_##short_type(atomic_##short_type##_t *a,	\
 		return false;						\
 	}								\
 }
+/* clang-format on */
 
-#define JEMALLOC_GENERATE_INT_ATOMICS(type, short_type,			\
-    /* unused */ lg_size)						\
-JEMALLOC_GENERATE_ATOMICS(type, short_type, /* unused */ lg_size)	\
-									\
-ATOMIC_INLINE type							\
-atomic_fetch_add_##short_type(atomic_##short_type##_t *a, type val,	\
-    atomic_memory_order_t mo) {						\
-	return __sync_fetch_and_add(&a->repr, val);			\
-}									\
-									\
-ATOMIC_INLINE type							\
-atomic_fetch_sub_##short_type(atomic_##short_type##_t *a, type val,	\
-    atomic_memory_order_t mo) {						\
-	return __sync_fetch_and_sub(&a->repr, val);			\
-}									\
-									\
-ATOMIC_INLINE type							\
-atomic_fetch_and_##short_type(atomic_##short_type##_t *a, type val,	\
-    atomic_memory_order_t mo) {						\
-	return __sync_fetch_and_and(&a->repr, val);			\
-}									\
-									\
-ATOMIC_INLINE type							\
-atomic_fetch_or_##short_type(atomic_##short_type##_t *a, type val,	\
-    atomic_memory_order_t mo) {						\
-	return __sync_fetch_and_or(&a->repr, val);			\
-}									\
-									\
-ATOMIC_INLINE type							\
-atomic_fetch_xor_##short_type(atomic_##short_type##_t *a, type val,	\
-    atomic_memory_order_t mo) {						\
-	return __sync_fetch_and_xor(&a->repr, val);			\
-}
+#define JEMALLOC_GENERATE_INT_ATOMICS(type, short_type, /* unused */ lg_size)  \
+	JEMALLOC_GENERATE_ATOMICS(type, short_type, /* unused */ lg_size)      \
+                                                                               \
+	ATOMIC_INLINE type atomic_fetch_add_##short_type(                      \
+	    atomic_##short_type##_t *a, type val, atomic_memory_order_t mo) {  \
+		return __sync_fetch_and_add(&a->repr, val);                    \
+	}                                                                      \
+                                                                               \
+	ATOMIC_INLINE type atomic_fetch_sub_##short_type(                      \
+	    atomic_##short_type##_t *a, type val, atomic_memory_order_t mo) {  \
+		return __sync_fetch_and_sub(&a->repr, val);                    \
+	}                                                                      \
+                                                                               \
+	ATOMIC_INLINE type atomic_fetch_and_##short_type(                      \
+	    atomic_##short_type##_t *a, type val, atomic_memory_order_t mo) {  \
+		return __sync_fetch_and_and(&a->repr, val);                    \
+	}                                                                      \
+                                                                               \
+	ATOMIC_INLINE type atomic_fetch_or_##short_type(                       \
+	    atomic_##short_type##_t *a, type val, atomic_memory_order_t mo) {  \
+		return __sync_fetch_and_or(&a->repr, val);                     \
+	}                                                                      \
+                                                                               \
+	ATOMIC_INLINE type atomic_fetch_xor_##short_type(                      \
+	    atomic_##short_type##_t *a, type val, atomic_memory_order_t mo) {  \
+		return __sync_fetch_and_xor(&a->repr, val);                    \
+	}
+
+#undef ATOMIC_INLINE
 
 #endif /* JEMALLOC_INTERNAL_ATOMIC_GCC_SYNC_H */

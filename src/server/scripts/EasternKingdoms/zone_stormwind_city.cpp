@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,7 +23,6 @@ SDCategory: Stormwind City
 EndScriptData */
 
 /* ContentData
-npc_bartleby
 npc_tyrion
 npc_tyrion_spybot
 npc_marzon_silent_blade
@@ -38,64 +36,6 @@ EndContentData */
 #include "ScriptedEscortAI.h"
 #include "ScriptedGossip.h"
 #include "TemporarySummon.h"
-
-/*######
-## npc_bartleby
-######*/
-
-enum Bartleby
-{
-    QUEST_BEAT    = 1640
-};
-
-class npc_bartleby : public CreatureScript
-{
-public:
-    npc_bartleby() : CreatureScript("npc_bartleby") { }
-
-    struct npc_bartlebyAI : public ScriptedAI
-    {
-        npc_bartlebyAI(Creature* creature) : ScriptedAI(creature)
-        {
-            m_uiNormalFaction = creature->GetFaction();
-        }
-
-        uint32 m_uiNormalFaction;
-
-        void Reset() override
-        {
-            if (me->GetFaction() != m_uiNormalFaction)
-                me->SetFaction(m_uiNormalFaction);
-        }
-
-        void DamageTaken(Unit* pDoneBy, uint32 &uiDamage) override
-        {
-            if (uiDamage > me->GetHealth() || me->HealthBelowPctDamaged(15, uiDamage))
-            {
-                //Take 0 damage
-                uiDamage = 0;
-
-                if (Player* player = pDoneBy->ToPlayer())
-                    player->AreaExploredOrEventHappens(QUEST_BEAT);
-                EnterEvadeMode();
-            }
-        }
-
-        void QuestAccept(Player* player, Quest const* quest) override
-        {
-            if (quest->GetQuestId() == QUEST_BEAT)
-            {
-                me->SetFaction(FACTION_ENEMY);
-                AttackStart(player);
-            }
-        }
-    };
-
-    CreatureAI* GetAI(Creature* creature) const override
-    {
-        return new npc_bartlebyAI(creature);
-    }
-};
 
 /*######
 ## npc_lord_gregor_lescovar
@@ -185,7 +125,7 @@ public:
                     break;
                 case 16:
                     SetEscortPaused(true);
-                    if (Creature* pMarzon = me->SummonCreature(NPC_MARZON_BLADE, -8411.360352f, 480.069733f, 123.760895f, 4.941504f, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 1000))
+                    if (Creature* pMarzon = me->SummonCreature(NPC_MARZON_BLADE, -8411.360352f, 480.069733f, 123.760895f, 4.941504f, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 1s))
                     {
                         pMarzon->GetMotionMaster()->MovePoint(0, -8408.000977f, 468.611450f, 123.759903f);
                         MarzonGUID = pMarzon->GetGUID();
@@ -306,7 +246,7 @@ public:
 
             if (me->IsSummon())
             {
-                if (Unit* summoner = me->ToTempSummon()->GetSummoner())
+                if (Unit* summoner = me->ToTempSummon()->GetSummonerUnit())
                 {
                     if (summoner->GetTypeId() == TYPEID_UNIT && summoner->IsAlive() && !summoner->IsInCombat())
                         summoner->ToCreature()->AI()->AttackStart(who);
@@ -320,7 +260,7 @@ public:
 
             if (me->IsSummon())
             {
-                if (Unit* summoner = me->ToTempSummon()->GetSummoner())
+                if (Unit* summoner = me->ToTempSummon()->GetSummonerUnit())
                 {
                     if (summoner->GetTypeId() == TYPEID_UNIT && summoner->IsAlive())
                         summoner->ToCreature()->DisappearAndDie();
@@ -335,8 +275,8 @@ public:
 
             if (me->IsSummon())
             {
-                Unit* summoner = me->ToTempSummon()->GetSummoner();
-                if (summoner && summoner->GetTypeId() == TYPEID_UNIT && summoner->IsAIEnabled)
+                Unit* summoner = me->ToTempSummon()->GetSummonerUnit();
+                if (summoner && summoner->GetTypeId() == TYPEID_UNIT && summoner->IsAIEnabled())
                 {
                     npc_lord_gregor_lescovar::npc_lord_gregor_lescovarAI* ai =
                         CAST_AI(npc_lord_gregor_lescovar::npc_lord_gregor_lescovarAI, summoner->GetAI());
@@ -378,6 +318,8 @@ enum TyrionSpybot
     NPC_PRIESTESS_TYRIONA    = 7779,
     NPC_LORD_GREGOR_LESCOVAR = 1754,
 };
+
+static constexpr uint32 PATH_ESCORT_LESCOVAR = 14034;
 
 class npc_tyrion_spybot : public CreatureScript
 {
@@ -449,7 +391,10 @@ public:
                             break;
                         case 2:
                             if (Creature* pTyrion = me->FindNearestCreature(NPC_TYRION, 10.0f))
-                                pTyrion->AI()->Talk(SAY_TYRION_1);
+                            {
+                                if (Player* player = GetPlayerForEscort())
+                                    pTyrion->AI()->Talk(SAY_TYRION_1, player);
+                            }
                             uiTimer = 3000;
                             uiPhase = 3;
                             break;
@@ -495,8 +440,12 @@ public:
                             {
                                 if (Player* player = GetPlayerForEscort())
                                 {
-                                    ENSURE_AI(npc_lord_gregor_lescovar::npc_lord_gregor_lescovarAI, pLescovar->AI())->Start(false, false, player->GetGUID());
-                                    ENSURE_AI(npc_lord_gregor_lescovar::npc_lord_gregor_lescovarAI, pLescovar->AI())->SetMaxPlayerDistance(200.0f);
+                                    if (EscortAI* ai = CAST_AI(EscortAI, pLescovar->AI()))
+                                    {
+                                        ai->LoadPath(PATH_ESCORT_LESCOVAR);
+                                        ai->Start(false, player->GetGUID());
+                                        ai->SetMaxPlayerDistance(200.0f);
+                                    }
                                 }
                             }
                             me->DisappearAndDie();
@@ -525,6 +474,8 @@ enum Tyrion
     NPC_TYRION_SPYBOT = 8856
 };
 
+static constexpr uint32 PATH_ESCORT_TYRION_SPYBOT = 70850;
+
 class npc_tyrion : public CreatureScript
 {
 public:
@@ -534,14 +485,18 @@ public:
     {
         npc_tyrionAI(Creature* creature) : ScriptedAI(creature) { }
 
-        void QuestAccept(Player* player, Quest const* quest) override
+        void OnQuestAccept(Player* player, Quest const* quest) override
         {
             if (quest->GetQuestId() == QUEST_THE_ATTACK)
             {
                 if (Creature* spybot = me->FindNearestCreature(NPC_TYRION_SPYBOT, 5.0f, true))
                 {
-                    ENSURE_AI(npc_tyrion_spybot::npc_tyrion_spybotAI, spybot->AI())->Start(false, false, player->GetGUID());
-                    ENSURE_AI(npc_tyrion_spybot::npc_tyrion_spybotAI, spybot->AI())->SetMaxPlayerDistance(200.0f);
+                    if (EscortAI* ai = CAST_AI(EscortAI, spybot->AI()))
+                    {
+                        ai->LoadPath(PATH_ESCORT_TYRION_SPYBOT);
+                        ai->Start(false, player->GetGUID());
+                        ai->SetMaxPlayerDistance(200.0f);
+                    }
                 }
             }
         }
@@ -555,7 +510,6 @@ public:
 
 void AddSC_stormwind_city()
 {
-    new npc_bartleby();
     new npc_tyrion();
     new npc_tyrion_spybot();
     new npc_lord_gregor_lescovar();

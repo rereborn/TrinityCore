@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,13 +23,20 @@
 #define GLScriptName "instance_gruuls_lair"
 #define DataHeader   "GL"
 
-uint32 const EncounterCount = 2;
+constexpr uint32 EncounterCount = 2;
+
+enum GLEncounters
+{
+    DATA_MAULGAR                = 0,
+    DATA_GRUUL                  = 1
+};
 
 enum GLDataTypes
 {
-    // Encounter States/Boss GUIDs
-    DATA_MAULGAR                = 0,
-    DATA_GRUUL                  = 1
+    DATA_KROSH_FIREHAND,
+    DATA_OLM_THE_SUMMONER,
+    DATA_KIGGLER_THE_CRAZED,
+    DATA_BLINDEYE_THE_SEER
 };
 
 enum GLCreatureIds
@@ -43,7 +50,7 @@ enum GLCreatureIds
 
 enum GLGameObjectIds
 {
-    GO_MAULGAR_DOOR             = 184468,
+    GO_MAULGAR_DOOR             = 183817,
     GO_GRUUL_DOOR               = 184662
 };
 
@@ -52,5 +59,7 @@ inline AI* GetGruulsLairAI(T* obj)
 {
     return GetInstanceAI<AI>(obj, GLScriptName);
 }
+
+#define RegisterGruulsLairCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetGruulsLairAI)
 
 #endif // GRUULS_LAIR_H_

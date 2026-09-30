@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,22 +19,18 @@
 #include "Creature.h"
 #include "gruuls_lair.h"
 #include "InstanceScript.h"
-#include "Map.h"
 
-DoorData const doorData[] =
+static constexpr DoorData doorData[] =
 {
     { GO_MAULGAR_DOOR,  DATA_MAULGAR,   DOOR_TYPE_PASSAGE },
     { GO_GRUUL_DOOR,    DATA_GRUUL,     DOOR_TYPE_ROOM },
     { 0,                0,              DOOR_TYPE_ROOM } // END
 };
 
-MinionData const minionData[] =
+static constexpr ObjectData creatureData[] =
 {
     { NPC_MAULGAR,              DATA_MAULGAR },
-    { NPC_KROSH_FIREHAND,       DATA_MAULGAR },
-    { NPC_OLM_THE_SUMMONER,     DATA_MAULGAR },
-    { NPC_KIGGLER_THE_CRAZED,   DATA_MAULGAR },
-    { NPC_BLINDEYE_THE_SEER,    DATA_MAULGAR }
+    { 0,                        0            } // END
 };
 
 class instance_gruuls_lair : public InstanceMapScript
@@ -44,12 +40,12 @@ class instance_gruuls_lair : public InstanceMapScript
 
         struct instance_gruuls_lair_InstanceMapScript : public InstanceScript
         {
-            instance_gruuls_lair_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_gruuls_lair_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadDoorData(doorData);
-                LoadMinionData(minionData);
+                LoadObjectData(creatureData, nullptr);
             }
 
             void OnCreatureCreate(Creature* creature) override
@@ -58,28 +54,44 @@ class instance_gruuls_lair : public InstanceMapScript
 
                 switch (creature->GetEntry())
                 {
-                    case NPC_MAULGAR:
-                        MaulgarGUID = creature->GetGUID();
+                    case NPC_KROSH_FIREHAND:
+                        MaulgarOgreSpawnId[0] = creature->GetSpawnId();
+                        break;
+                    case NPC_OLM_THE_SUMMONER:
+                        MaulgarOgreSpawnId[1] = creature->GetSpawnId();
+                        break;
+                    case NPC_KIGGLER_THE_CRAZED:
+                        MaulgarOgreSpawnId[2] = creature->GetSpawnId();
+                        break;
+                    case NPC_BLINDEYE_THE_SEER:
+                        MaulgarOgreSpawnId[3] = creature->GetSpawnId();
                         break;
                     default:
                         break;
                 }
             }
 
-            ObjectGuid GetGuidData(uint32 type) const override
+            uint64 GetData64(uint32 type) const override
             {
                 switch (type)
                 {
-                    case DATA_MAULGAR:
-                        return MaulgarGUID;
+                    case DATA_KROSH_FIREHAND:
+                        return MaulgarOgreSpawnId[0];
+                    case DATA_OLM_THE_SUMMONER:
+                        return MaulgarOgreSpawnId[1];
+                    case DATA_KIGGLER_THE_CRAZED:
+                        return MaulgarOgreSpawnId[2];
+                    case DATA_BLINDEYE_THE_SEER:
+                        return MaulgarOgreSpawnId[3];
                     default:
                         break;
                 }
-                return ObjectGuid::Empty;
+
+                return InstanceScript::GetData64(type);
             }
 
         protected:
-            ObjectGuid MaulgarGUID;
+            ObjectGuid::LowType MaulgarOgreSpawnId[4] = { };
         };
 
         InstanceScript* GetInstanceScript(InstanceMap* map) const override

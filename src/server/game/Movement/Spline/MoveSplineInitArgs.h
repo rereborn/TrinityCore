@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,6 +19,7 @@
 #define TRINITYSERVER_MOVESPLINEINIT_ARGS_H
 
 #include "MoveSplineFlag.h"
+#include "ObjectGuid.h"
 #include <vector>
 
 class Unit;
@@ -33,17 +33,18 @@ namespace Movement
         struct {
             float x, y, z;
         } f;
-        uint64  target;
-        float   angle;
+        ObjectGuid target;
+        float angle;
 
         FacingInfo(float o) : angle(o) { }
-        FacingInfo(uint64 t) : target(t) { }
+        FacingInfo(ObjectGuid t) : target(t) { }
         FacingInfo() { }
     };
 
     struct MoveSplineInitArgs
     {
         MoveSplineInitArgs(size_t path_capacity = 16);
+        MoveSplineInitArgs(MoveSplineInitArgs&& args);
         ~MoveSplineInitArgs();
 
         PointsArray path;

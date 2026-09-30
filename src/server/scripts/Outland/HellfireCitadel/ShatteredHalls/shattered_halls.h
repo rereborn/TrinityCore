@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -30,23 +29,32 @@ uint32 const VictimCount             = 3;
 enum SHDataTypes
 {
     DATA_NETHEKURSE                  = 0,
-    DATA_OMROGG                      = 1,
-    DATA_KARGATH                     = 2,
+    DATA_PORUNG                      = 1,
+    DATA_OMROGG                      = 2,
+    DATA_KARGATH                     = 3,
 
-    DATA_SHATTERED_EXECUTIONER       = 3,
-    DATA_PRISONERS_EXECUTED          = 4,
+    DATA_SHATTERED_EXECUTIONER       = 4,
+    DATA_PRISONERS_EXECUTED          = 5,
 
-    DATA_TEAM_IN_INSTANCE            = 5,
+    DATA_TEAM_IN_INSTANCE            = 6,
 
     DATA_FIRST_PRISONER,
     DATA_SECOND_PRISONER,
-    DATA_THIRD_PRISONER
+    DATA_THIRD_PRISONER,
+
+    DATA_LEFT_HEAD,
+    DATA_RIGHT_HEAD
 };
 
 enum SHCreatureIds
 {
     NPC_GRAND_WARLOCK_NETHEKURSE     = 16807,
+    NPC_BLOOD_GUARD_PORUNG           = 20923,
     NPC_KARGATH_BLADEFIST            = 16808,
+
+    // Warbringer O'mrogg
+    NPC_LEFT_HEAD                    = 19523,
+    NPC_RIGHT_HEAD                   = 19524,
 
     NPC_SHATTERED_EXECUTIONER        = 17301,
 
@@ -91,7 +99,7 @@ enum SHActions
     ACTION_EXECUTIONER_TAUNT = 1
 };
 
-Position const Executioner = { 152.8524f, -83.63912f, 2.021005f, 0.06981317f };
+extern Position const Executioner;
 
 struct FactionSpawnerHelper
 {
@@ -118,5 +126,8 @@ inline AI* GetShatteredHallsAI(T* obj)
 {
     return GetInstanceAI<AI>(obj, SHScriptName);
 }
+
+#define RegisterShatteredHallsCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetShatteredHallsAI)
+#define RegisterShatteredHallsGameObjectAI(ai_name) RegisterGameObjectAIWithFactory(ai_name, GetShatteredHallsAI)
 
 #endif

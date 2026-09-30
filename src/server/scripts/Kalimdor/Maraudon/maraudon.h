@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -27,5 +27,7 @@ inline AI* GetMaraudonAI(T* obj)
 {
     return GetInstanceAI<AI>(obj, MaraudonScriptName);
 }
+
+#define RegisterMaraudonCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetMaraudonAI)
 
 #endif // maraudon_h__

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,23 +16,55 @@
  */
 
 #include "ChatTextBuilder.h"
-#include "Chat.h"
+#include "ChatPackets.h"
 #include "ObjectMgr.h"
-#include "Unit.h"
+#include <cstdarg>
 
-void Trinity::BroadcastTextBuilder::operator()(WorldPacket& data, LocaleConstant locale) const
+std::size_t Trinity::BroadcastTextBuilder::operator()(WorldPacket* data, LocaleConstant locale) const
 {
-    BroadcastText const* bct = sObjectMgr->GetBroadcastText(_textId);
-    ChatHandler::BuildChatPacket(data, _msgType, bct ? Language(bct->Language) : LANG_UNIVERSAL, _source, _target, bct ? bct->GetText(locale, _source->getGender()) : "", _achievementId, "", locale);
-}
+    BroadcastTextEntry const* bct = sObjectMgr->GetBroadcastText(_textId);
+    WorldPackets::Chat::Chat chat;
+    chat.Initialize(_msgType, bct ? Language(bct->LanguageID) : LANG_UNIVERSAL, _source, _target, bct ? bct->GetText(locale, _gender) : "", _achievementId, "", locale);
+    chat.Write();
 
-size_t Trinity::BroadcastTextBuilder::operator()(WorldPacket* data, LocaleConstant locale) const
-{
-    BroadcastText const* bct = sObjectMgr->GetBroadcastText(_textId);
-    return ChatHandler::BuildChatPacket(*data, _msgType, bct ? Language(bct->Language) : LANG_UNIVERSAL, _source, _target, bct ? bct->GetText(locale, _source->getGender()) : "", _achievementId, "", locale);
+    *data = chat.Move();
+
+    return chat.TargetGUIDPos;
 }
 
 void Trinity::CustomChatTextBuilder::operator()(WorldPacket& data, LocaleConstant locale) const
 {
-    ChatHandler::BuildChatPacket(data, _msgType, _language, _source, _target, _text, 0, "", locale);
+    WorldPackets::Chat::Chat chat;
+    chat.Initialize(_msgType, _language, _source, _target, _text, 0, "", locale);
+    chat.Write();
+
+    data = chat.Move();
+}
+
+void Trinity::TrinityStringChatBuilder::operator()(WorldPacket& data, LocaleConstant locale) const
+{
+    char const* text = sObjectMgr->GetTrinityString(_textId, locale);
+
+    WorldPackets::Chat::Chat chat;
+    chat.Initialize(_msgType, LANG_UNIVERSAL, _source, _target, "", 0, "", locale);
+
+    if (_args)
+    {
+        // we need copy va_list before use or original va_list will corrupted
+        va_list ap;
+        va_copy(ap, *_args);
+
+        static size_t const BufferSize = 2048;
+        char strBuffer[BufferSize];
+        vsnprintf(strBuffer, BufferSize, text, ap);
+        va_end(ap);
+
+        chat.ChatText = strBuffer;
+    }
+    else
+        chat.ChatText = text;
+
+    chat.Write();
+
+    data = chat.Move();
 }

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,21 +15,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/** \addtogroup u2w User to World Communication
- *  @{
- *  \file WorldSocketMgr.h
- *  \author Derex <derex101@gmail.com>
- */
-
-#ifndef __WORLDSOCKETMGR_H
-#define __WORLDSOCKETMGR_H
+#ifndef TRINITYCORE_WORLD_SOCKET_MGR_H
+#define TRINITYCORE_WORLD_SOCKET_MGR_H
 
 #include "SocketMgr.h"
 
 class WorldSocket;
 
 /// Manages all sockets connected to peers and network threads
-class TC_GAME_API WorldSocketMgr : public SocketMgr<WorldSocket>
+class TC_GAME_API WorldSocketMgr : public Trinity::Net::SocketMgr<WorldSocket>
 {
     typedef SocketMgr<WorldSocket> BaseSocketMgr;
 
@@ -43,14 +36,14 @@ public:
     /// Stops all network threads, It will wait for all running threads .
     void StopNetwork() override;
 
-    void OnSocketOpen(tcp::socket&& sock, uint32 threadIndex) override;
+    void OnSocketOpen(Trinity::Net::IoContextTcpSocket&& sock, uint32 threadIndex) override;
 
     std::size_t GetApplicationSendBufferSize() const { return _socketApplicationSendBufferSize; }
 
 protected:
     WorldSocketMgr();
 
-    NetworkThread<WorldSocket>* CreateThreads() const override;
+    Trinity::Net::NetworkThread<WorldSocket>* CreateThreads() const override;
 
 private:
     int32 _socketSystemSendBufferSize;
@@ -61,4 +54,3 @@ private:
 #define sWorldSocketMgr WorldSocketMgr::Instance()
 
 #endif
-/// @}

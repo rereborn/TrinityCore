@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,22 +15,35 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __WORLDSOCKET_H__
-#define __WORLDSOCKET_H__
+#ifndef TRINITYCORE_WORLD_SOCKET_H
+#define TRINITYCORE_WORLD_SOCKET_H
 
 #include "Common.h"
-#include "AuthCrypt.h"
 #include "ServerPktHeader.h"
 #include "Socket.h"
 #include "Util.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "WorldPacketCrypt.h"
 #include "MPSCQueue.h"
-#include <chrono>
 #include <boost/asio/ip/tcp.hpp>
 
 using boost::asio::ip::tcp;
-class EncryptablePacket;
+class EncryptablePacket : public WorldPacket
+{
+public:
+    EncryptablePacket(WorldPacket const& packet, bool encrypt) : WorldPacket(packet), _encrypt(encrypt)
+    {
+        SocketQueueLink.store(nullptr, std::memory_order_relaxed);
+    }
+
+    bool NeedsEncryption() const { return _encrypt; }
+
+    std::atomic<EncryptablePacket*> SocketQueueLink;
+
+private:
+    bool _encrypt;
+};
 
 namespace WorldPackets
 {
@@ -52,15 +64,18 @@ struct ClientPktHeader
 
 struct AuthSession;
 
-class TC_GAME_API WorldSocket : public Socket<WorldSocket>
+class TC_GAME_API WorldSocket final : public Trinity::Net::Socket<>
 {
-    typedef Socket<WorldSocket> BaseSocket;
+    using BaseSocket = Socket;
 
 public:
-    WorldSocket(tcp::socket&& socket);
+    WorldSocket(Trinity::Net::IoContextTcpSocket&& socket);
+    ~WorldSocket();
 
     WorldSocket(WorldSocket const& right) = delete;
+    WorldSocket(WorldSocket&& right) = delete;
     WorldSocket& operator=(WorldSocket const& right) = delete;
+    WorldSocket& operator=(WorldSocket&& right) = delete;
 
     void Start() override;
     bool Update() override;
@@ -69,9 +84,14 @@ public:
 
     void SetSendBufferSize(std::size_t sendBufferSize) { _sendBufferSize = sendBufferSize; }
 
-protected:
     void OnClose() override;
-    void ReadHandler() override;
+    Trinity::Net::SocketReadCallbackResult ReadHandler() override;
+
+    void QueueQuery(QueryCallback&& queryCallback);
+
+    void SendAuthSession();
+
+protected:
     bool ReadHeaderHandler();
 
     enum class ReadDataHandlerResult
@@ -84,14 +104,11 @@ protected:
     ReadDataHandlerResult ReadDataHandler();
 
 private:
-    void CheckIpCallback(PreparedQueryResult result);
-
     /// writes network.opcode log
     /// accessing WorldSession is not threadsafe, only do it when holding _worldSessionLock
     void LogOpcodeText(OpcodeClient opcode, std::unique_lock<std::mutex> const& guard) const;
     /// sends and logs network.opcode without accessing WorldSession
     void SendPacketAndLogOpcode(WorldPacket const& packet);
-    void HandleSendAuthSession();
     void HandleAuthSession(WorldPacket& recvPacket);
     void HandleAuthSessionCallback(std::shared_ptr<AuthSession> authSession, PreparedQueryResult result);
     void LoadSessionPermissionsCallback(PreparedQueryResult result);
@@ -99,10 +116,11 @@ private:
 
     bool HandlePing(WorldPacket& recvPacket);
 
-    uint32 _authSeed;
-    AuthCrypt _authCrypt;
+    std::array<uint8, 4> _serverChallenge;
+    std::array<uint8, 32> _dosChallenge;
+    WorldPacketCrypt _authCrypt;
 
-    std::chrono::steady_clock::time_point _LastPingTime;
+    TimePoint _LastPingTime;
     uint32 _OverSpeedPings;
 
     std::mutex _worldSessionLock;
@@ -111,7 +129,7 @@ private:
 
     MessageBuffer _headerBuffer;
     MessageBuffer _packetBuffer;
-    MPSCQueue<EncryptablePacket> _bufferQueue;
+    MPSCQueue<EncryptablePacket, &EncryptablePacket::SocketQueueLink> _bufferQueue;
     std::size_t _sendBufferSize;
 
     QueryCallbackProcessor _queryProcessor;

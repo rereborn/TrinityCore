@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,6 +21,7 @@
 #include "Common.h"
 #include "Opcodes.h"
 #include "ByteBuffer.h"
+#include "Duration.h"
 
 class WorldPacket : public ByteBuffer
 {
@@ -34,37 +34,19 @@ class WorldPacket : public ByteBuffer
         WorldPacket(uint16 opcode, size_t res = 200) : ByteBuffer(res),
             m_opcode(opcode) { }
 
-        WorldPacket(WorldPacket&& packet) : ByteBuffer(std::move(packet)), m_opcode(packet.m_opcode)
+        WorldPacket(WorldPacket&& packet, TimePoint receivedTime) : ByteBuffer(std::move(packet)), m_opcode(packet.m_opcode), m_receivedTime(receivedTime)
         {
-        }
-
-        WorldPacket(WorldPacket const& right) : ByteBuffer(right), m_opcode(right.m_opcode)
-        {
-        }
-
-        WorldPacket& operator=(WorldPacket const& right)
-        {
-            if (this != &right)
-            {
-                m_opcode = right.m_opcode;
-                ByteBuffer::operator =(right);
-            }
-
-            return *this;
-        }
-
-        WorldPacket& operator=(WorldPacket&& right)
-        {
-            if (this != &right)
-            {
-                m_opcode = right.m_opcode;
-                ByteBuffer::operator=(std::move(right));
-            }
-
-            return *this;
         }
 
         WorldPacket(uint16 opcode, MessageBuffer&& buffer) : ByteBuffer(std::move(buffer)), m_opcode(opcode) { }
+
+        WorldPacket(WorldPacket const& right) = default;
+
+        WorldPacket(WorldPacket&& packet) noexcept = default;
+
+        WorldPacket& operator=(WorldPacket const& right) = default;
+
+        WorldPacket& operator=(WorldPacket&& right) noexcept = default;
 
         void Initialize(uint16 opcode, size_t newres = 200)
         {
@@ -76,8 +58,11 @@ class WorldPacket : public ByteBuffer
         uint16 GetOpcode() const { return m_opcode; }
         void SetOpcode(uint16 opcode) { m_opcode = opcode; }
 
+        TimePoint GetReceivedTime() const { return m_receivedTime; }
+
     protected:
         uint16 m_opcode;
+        TimePoint m_receivedTime; // only set for a specific set of opcodes, for performance reasons.
 };
 
 #endif

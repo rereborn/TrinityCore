@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,7 +19,6 @@
 #include "Creature.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
-#include "Map.h"
 #include "utgarde_keep.h"
 
 DoorData const doorData[] =
@@ -29,12 +28,6 @@ DoorData const doorData[] =
     { 0,                        0,              DOOR_TYPE_ROOM } // END
 };
 
-MinionData const minionData[] =
-{
-    { NPC_SKARVALD,     DATA_SKARVALD_DALRONN },
-    { NPC_DALRONN,      DATA_SKARVALD_DALRONN }
-};
-
 class instance_utgarde_keep : public InstanceMapScript
 {
     public:
@@ -42,12 +35,11 @@ class instance_utgarde_keep : public InstanceMapScript
 
         struct instance_utgarde_keep_InstanceMapScript : public InstanceScript
         {
-            instance_utgarde_keep_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_utgarde_keep_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadDoorData(doorData);
-                LoadMinionData(minionData);
             }
 
             void OnCreatureCreate(Creature* creature) override
@@ -59,27 +51,12 @@ class instance_utgarde_keep : public InstanceMapScript
                         break;
                     case NPC_SKARVALD:
                         SkarvaldGUID = creature->GetGUID();
-                        AddMinion(creature, true);
                         break;
                     case NPC_DALRONN:
                         DalronnGUID = creature->GetGUID();
-                        AddMinion(creature, true);
                         break;
                     case NPC_INGVAR:
                         IngvarGUID = creature->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            void OnCreatureRemove(Creature* creature) override
-            {
-                switch (creature->GetEntry())
-                {
-                    case NPC_SKARVALD:
-                    case NPC_DALRONN:
-                        AddMinion(creature, false);
                         break;
                     default:
                         break;

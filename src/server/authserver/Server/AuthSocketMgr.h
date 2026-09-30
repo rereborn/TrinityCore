@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,7 +21,7 @@
 #include "SocketMgr.h"
 #include "AuthSession.h"
 
-class AuthSocketMgr : public SocketMgr<AuthSession>
+class AuthSocketMgr : public Trinity::Net::SocketMgr<AuthSession>
 {
     typedef SocketMgr<AuthSession> BaseSocketMgr;
 
@@ -37,19 +37,17 @@ public:
         if (!BaseSocketMgr::StartNetwork(ioContext, bindIp, port, threadCount))
             return false;
 
-        _acceptor->AsyncAcceptWithCallback<&AuthSocketMgr::OnSocketAccept>();
+        _acceptor->AsyncAccept([this](Trinity::Net::IoContextTcpSocket&& sock, uint32 threadIndex)
+        {
+            OnSocketOpen(std::move(sock), threadIndex);
+        });
         return true;
     }
 
 protected:
-    NetworkThread<AuthSession>* CreateThreads() const override
+    Trinity::Net::NetworkThread<AuthSession>* CreateThreads() const override
     {
-        return new NetworkThread<AuthSession>[1];
-    }
-
-    static void OnSocketAccept(tcp::socket&& sock, uint32 threadIndex)
-    {
-        Instance().OnSocketOpen(std::forward<tcp::socket>(sock), threadIndex);
+        return new Trinity::Net::NetworkThread<AuthSession>[1];
     }
 };
 

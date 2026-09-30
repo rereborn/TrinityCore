@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,15 +15,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* ScriptData
-SDName: Instance_Karazhan
-SD%Complete: 70
-SDComment: Instance Script for Karazhan to help in various encounters. @todo GameObject visibility for Opera event.
-SDCategory: Karazhan
-EndScriptData */
-
 #include "ScriptMgr.h"
 #include "Creature.h"
+#include "CreatureAI.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
 #include "karazhan.h"
@@ -45,6 +38,23 @@ EndScriptData */
 11 - Nightbane
 */
 
+static constexpr ObjectData creatureData[] =
+{
+    { NPC_BARNES,                 DATA_BARNES                },
+    { NPC_JULIANNE,               DATA_JULIANNE              },
+    { NPC_ROMULO,                 DATA_ROMULO                },
+    { 0,                          0                          } // END
+};
+
+static constexpr ObjectData gameObjectData[] =
+{
+    { GO_STAGE_CURTAIN,           DATA_GO_STAGE_CURTAIN      },
+    { GO_STAGE_DOOR_LEFT,         DATA_GO_STAGE_DOOR_LEFT    },
+    { GO_STAGE_DOOR_RIGHT,        DATA_GO_STAGE_DOOR_RIGHT   },
+    { GO_SIDE_ENTRANCE_DOOR,      DATA_GO_SIDE_ENTRANCE_DOOR },
+    { 0,                          0                          } // END
+};
+
 const Position OptionalSpawn[] =
 {
     { -10960.981445f, -1940.138428f, 46.178097f, 4.12f  }, // Hyakiss the Lurker
@@ -64,19 +74,21 @@ public:
 
     struct instance_karazhan_InstanceMapScript : public InstanceScript
     {
-        instance_karazhan_InstanceMapScript(Map* map) : InstanceScript(map)
+        instance_karazhan_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
         {
             SetHeaders(DataHeader);
             SetBossNumber(EncounterCount);
+            LoadObjectData(creatureData, gameObjectData);
 
-            // 1 - OZ, 2 - HOOD, 3 - RAJ, this never gets altered.
-            OperaEvent = urand(EVENT_OZ, EVENT_RAJ);
+            OperaEvent = RAND(EVENT_HOOD, EVENT_OZ, EVENT_RAJ);
             OzDeathCount = 0;
             OptionalBossCount = 0;
         }
 
         void OnCreatureCreate(Creature* creature) override
         {
+            InstanceScript::OnCreatureCreate(creature);
+
             switch (creature->GetEntry())
             {
                 case NPC_KILREK:
@@ -132,6 +144,11 @@ public:
                         }
                     }
                     break;
+                case NPC_HYAKISS_THE_LURKER:
+                case NPC_SHADIKITH_THE_GLIDER:
+                case NPC_ROKAD_THE_RAVAGER:
+                    SetBossState(DATA_OPTIONAL_BOSS, DONE);
+                    break;
                 default:
                     break;
             }
@@ -141,11 +158,14 @@ public:
         {
             switch (type)
             {
-                case DATA_OPERA_OZ_DEATHCOUNT:
+                case DATA_OPERA_VARIATION:
+                    OperaEvent = data;
+                    break;
+                case DATA_OPERA_OZ_DEATH_COUNT:
                     if (data == SPECIAL)
                         ++OzDeathCount;
-                    else if (data == IN_PROGRESS)
-                        OzDeathCount = 0;
+                    break;
+                default:
                     break;
             }
         }
@@ -160,16 +180,30 @@ public:
                 case DATA_OPERA_PERFORMANCE:
                     if (state == DONE)
                     {
-                        HandleGameObject(StageDoorLeftGUID, true);
-                        HandleGameObject(StageDoorRightGUID, true);
-                        if (GameObject* sideEntrance = instance->GetGameObject(SideEntranceDoor))
-                            sideEntrance->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
-                        UpdateEncounterStateForKilledCreature(16812, nullptr);
+                        if (GameObject* go = GetGameObject(DATA_GO_STAGE_DOOR_LEFT))
+                            HandleGameObject(ObjectGuid::Empty, true, go);
+                        if (GameObject* go = GetGameObject(DATA_GO_STAGE_DOOR_RIGHT))
+                            HandleGameObject(ObjectGuid::Empty, true, go);
+                        if (GameObject* go = GetGameObject(DATA_GO_SIDE_ENTRANCE_DOOR))
+                            go->ActivateObject(GameObjectActions::Unlock);
+                        if (Creature* barnes = GetCreature(DATA_BARNES))
+                            barnes->AI()->DoAction(ACTION_OPERA_FINISHED);
+                        UpdateEncounterStateForKilledCreature(NPC_BARNES, nullptr);
+                    }
+                    else if (state == FAIL)
+                    {
+                        OzDeathCount = 0;
+                        if (GameObject* go = GetGameObject(DATA_GO_STAGE_DOOR_LEFT))
+                            HandleGameObject(ObjectGuid::Empty, true, go);
+                        if (GameObject* go = GetGameObject(DATA_GO_STAGE_CURTAIN))
+                            HandleGameObject(ObjectGuid::Empty, false, go);
+                        if (Creature* barnes = GetCreature(DATA_BARNES))
+                            barnes->AI()->DoAction(ACTION_OPERA_FINISHED);
                     }
                     break;
                 case DATA_CHESS:
                     if (state == DONE)
-                        DoRespawnGameObject(DustCoveredChest, DAY);
+                        DoRespawnGameObject(DustCoveredChest, 24h);
                     break;
                 default:
                     break;
@@ -186,20 +220,17 @@ public:
 
         void OnGameObjectCreate(GameObject* go) override
         {
+            InstanceScript::OnGameObjectCreate(go);
+
             switch (go->GetEntry())
             {
-                case GO_STAGE_CURTAIN:
-                    CurtainGUID = go->GetGUID();
-                    break;
                 case GO_STAGE_DOOR_LEFT:
-                    StageDoorLeftGUID = go->GetGUID();
-                    if (GetBossState(DATA_OPERA_PERFORMANCE) == DONE)
-                        go->SetGoState(GO_STATE_ACTIVE);
+                    if (GetBossState(DATA_OPERA_PERFORMANCE) == DONE || GetBossState(DATA_OPERA_PERFORMANCE) == FAIL)
+                        HandleGameObject(ObjectGuid::Empty, true, go);
                     break;
                 case GO_STAGE_DOOR_RIGHT:
-                    StageDoorRightGUID = go->GetGUID();
                     if (GetBossState(DATA_OPERA_PERFORMANCE) == DONE)
-                        go->SetGoState(GO_STATE_ACTIVE);
+                        HandleGameObject(ObjectGuid::Empty, true, go);
                     break;
                 case GO_PRIVATE_LIBRARY_DOOR:
                     LibraryDoor = go->GetGUID();
@@ -223,11 +254,8 @@ public:
                     MastersTerraceDoor[1] = go->GetGUID();
                     break;
                 case GO_SIDE_ENTRANCE_DOOR:
-                    SideEntranceDoor = go->GetGUID();
                     if (GetBossState(DATA_OPERA_PERFORMANCE) == DONE)
-                        go->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
-                    else
-                        go->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
+                        go->ActivateObject(GameObjectActions::Unlock);
                     break;
                 case GO_DUST_COVERED_CHEST:
                     DustCoveredChest = go->GetGUID();
@@ -236,28 +264,15 @@ public:
                     BlackenedUrnGUID = go->GetGUID();
                     break;
             }
-
-            switch (OperaEvent)
-            {
-                /// @todo Set Object visibilities for Opera based on performance
-                case EVENT_OZ:
-                    break;
-
-                case EVENT_HOOD:
-                    break;
-
-                case EVENT_RAJ:
-                    break;
-            }
         }
 
         uint32 GetData(uint32 type) const override
         {
             switch (type)
             {
-                case DATA_OPERA_PERFORMANCE:
+                case DATA_OPERA_VARIATION:
                     return OperaEvent;
-                case DATA_OPERA_OZ_DEATHCOUNT:
+                case DATA_OPERA_OZ_DEATH_COUNT:
                     return OzDeathCount;
             }
 
@@ -276,18 +291,10 @@ public:
                     return MoroesGUID;
                 case DATA_NIGHTBANE:
                     return NightbaneGUID;
-                case DATA_GO_STAGEDOORLEFT:
-                    return StageDoorLeftGUID;
-                case DATA_GO_STAGEDOORRIGHT:
-                    return StageDoorRightGUID;
-                case DATA_GO_CURTAINS:
-                    return CurtainGUID;
                 case DATA_GO_LIBRARY_DOOR:
                     return LibraryDoor;
                 case DATA_GO_MASSIVE_DOOR:
                     return MassiveDoor;
-                case DATA_GO_SIDE_ENTRANCE_DOOR:
-                    return SideEntranceDoor;
                 case DATA_GO_GAME_DOOR:
                     return GamesmansDoor;
                 case DATA_GO_GAME_EXIT_DOOR:
@@ -308,19 +315,13 @@ public:
         }
 
     private:
-        uint32 OperaEvent;
-        uint32 OzDeathCount;
         uint32 OptionalBossCount;
-        ObjectGuid CurtainGUID;
-        ObjectGuid StageDoorLeftGUID;
-        ObjectGuid StageDoorRightGUID;
         ObjectGuid KilrekGUID;
         ObjectGuid TerestianGUID;
         ObjectGuid MoroesGUID;
         ObjectGuid NightbaneGUID;
         ObjectGuid LibraryDoor;                 // Door at Shade of Aran
         ObjectGuid MassiveDoor;                 // Door at Netherspite
-        ObjectGuid SideEntranceDoor;            // Side Entrance
         ObjectGuid GamesmansDoor;               // Door before Chess
         ObjectGuid GamesmansExitDoor;           // Door after Chess
         ObjectGuid NetherspaceDoor;             // Door at Malchezaar
@@ -328,6 +329,10 @@ public:
         ObjectGuid ImageGUID;
         ObjectGuid DustCoveredChest;
         ObjectGuid BlackenedUrnGUID;
+
+    protected:
+        uint32 OperaEvent;
+        uint32 OzDeathCount;
     };
 };
 

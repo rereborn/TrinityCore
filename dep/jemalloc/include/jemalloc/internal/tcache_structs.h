@@ -1,63 +1,74 @@
 #ifndef JEMALLOC_INTERNAL_TCACHE_STRUCTS_H
 #define JEMALLOC_INTERNAL_TCACHE_STRUCTS_H
 
+#include "jemalloc/internal/jemalloc_preamble.h"
+#include "jemalloc/internal/cache_bin.h"
 #include "jemalloc/internal/ql.h"
-#include "jemalloc/internal/size_classes.h"
-#include "jemalloc/internal/stats_tsd.h"
+#include "jemalloc/internal/sc.h"
+#include "jemalloc/internal/tcache_types.h"
 #include "jemalloc/internal/ticker.h"
 
 /*
- * Read-only information associated with each element of tcache_t's tbins array
- * is stored separately, mainly to reduce memory usage.
+ * The tcache state is split into the slow and hot path data.  Each has a
+ * pointer to the other, and the data always comes in pairs.  The layout of each
+ * of them varies in practice; tcache_slow lives in the TSD for the automatic
+ * tcache, and as part of a dynamic allocation for manual allocations.  Keeping
+ * a pointer to tcache_slow lets us treat these cases uniformly, rather than
+ * splitting up the tcache [de]allocation code into those paths called with the
+ * TSD tcache and those called with a manual tcache.
  */
-struct tcache_bin_info_s {
-	unsigned	ncached_max;	/* Upper limit on ncached. */
-};
 
-struct tcache_bin_s {
-	low_water_t	low_water;	/* Min # cached since last GC. */
-	uint32_t	ncached;	/* # of cached objects. */
+struct tcache_slow_s {
+	/* Lets us track all the tcaches in an arena. */
+	ql_elm(tcache_slow_t) link;
+
 	/*
-	 * ncached and stats are both modified frequently.  Let's keep them
-	 * close so that they have a higher chance of being on the same
-	 * cacheline, thus less write-backs.
+	 * The descriptor lets the arena find our cache bins without seeing the
+	 * tcache definition.  This enables arenas to aggregate stats across
+	 * tcaches without having a tcache dependency.
 	 */
-	tcache_bin_stats_t tstats;
+	cache_bin_array_descriptor_t cache_bin_array_descriptor;
+
+	/* The arena this tcache is associated with. */
+	arena_t *arena;
+	/* The number of bins activated in the tcache. */
+	unsigned tcache_nbins;
+	/* Last time GC has been performed.  */
+	nstime_t last_gc_time;
+	/* Next bin to GC. */
+	szind_t next_gc_bin;
+	szind_t next_gc_bin_small;
+	szind_t next_gc_bin_large;
+	/* For small bins, help determine how many items to fill at a time. */
+	cache_bin_fill_ctl_t bin_fill_ctl_do_not_access_directly[SC_NBINS];
+	/* For small bins, whether has been refilled since last GC. */
+	bool bin_refilled[SC_NBINS];
 	/*
-	 * To make use of adjacent cacheline prefetch, the items in the avail
-	 * stack goes to higher address for newer allocations.  avail points
-	 * just above the available space, which means that
-	 * avail[-ncached, ... -1] are available items and the lowest item will
-	 * be allocated first.
+	 * For small bins, the number of items we can pretend to flush before
+	 * actually flushing.
 	 */
-	void		**avail;	/* Stack of available objects. */
+	uint8_t bin_flush_delay_items[SC_NBINS];
+	/*
+	 * The start of the allocation containing the dynamic allocation for
+	 * either the cache bins alone, or the cache bin memory as well as this
+	 * tcache_slow_t and its associated tcache_t.
+	 */
+	void *dyn_alloc;
+
+	/* The associated bins. */
+	tcache_t *tcache;
 };
 
 struct tcache_s {
-	/* Data accessed frequently first: prof, ticker and small bins. */
-	uint64_t	prof_accumbytes;/* Cleared after arena_prof_accum(). */
-	ticker_t	gc_ticker;	/* Drives incremental GC. */
-	/*
-	 * The pointer stacks associated with tbins follow as a contiguous
-	 * array.  During tcache initialization, the avail pointer in each
-	 * element of tbins is initialized to point to the proper offset within
-	 * this array.
-	 */
-	tcache_bin_t	tbins_small[NBINS];
-	/* Data accessed less often below. */
-	ql_elm(tcache_t) link;		/* Used for aggregating stats. */
-	arena_t		*arena;		/* Associated arena. */
-	szind_t		next_gc_bin;	/* Next bin to GC. */
-	/* For small bins, fill (ncached_max >> lg_fill_div). */
-	uint8_t		lg_fill_div[NBINS];
-	tcache_bin_t	tbins_large[NSIZES-NBINS];
+	tcache_slow_t *tcache_slow;
+	cache_bin_t    bins[TCACHE_NBINS_MAX];
 };
 
 /* Linkage for list of available (previously used) explicit tcache IDs. */
 struct tcaches_s {
 	union {
-		tcache_t	*tcache;
-		tcaches_t	*next;
+		tcache_t  *tcache;
+		tcaches_t *next;
 	};
 };
 

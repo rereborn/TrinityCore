@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,8 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef EquipmentSet_h__
-#define EquipmentSet_h__
+#ifndef TRINITYCORE_EQUIPMENT_SET_H
+#define TRINITYCORE_EQUIPMENT_SET_H
 
 #include "Define.h"
 #include "ObjectGuid.h"
@@ -35,6 +35,8 @@ enum EquipmentSetUpdateState
 
 struct EquipmentSetInfo
 {
+    static ObjectGuid const IgnoredSlot;
+
     /// Data sent in EquipmentSet related packets
     struct EquipmentSetData
     {
@@ -43,7 +45,7 @@ struct EquipmentSetInfo
         std::string SetName;
         std::string SetIcon;
         uint32 IgnoreMask = 0;                                  ///< Mask of EquipmentSlot
-        std::array<ObjectGuid, EQUIPMENT_SET_SLOTS> Pieces;
+        std::array<ObjectGuid, EQUIPMENT_SET_SLOTS> Pieces = {};
     } Data;
 
     /// Server-side data
@@ -54,5 +56,4 @@ struct EquipmentSetInfo
 
 typedef std::map<uint64, EquipmentSetInfo> EquipmentSetContainer;
 
-
-#endif // EquipmentSet_h__
+#endif // TRINITYCORE_EQUIPMENT_SET_H

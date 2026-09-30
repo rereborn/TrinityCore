@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,6 +17,31 @@
 
 #include "QuestPackets.h"
 
+void WorldPackets::Quest::QuestGiverStatusQuery::Read()
+{
+    _worldPacket >> QuestGiverGUID;
+}
+
+WorldPacket const* WorldPackets::Quest::QuestGiverStatus::Write()
+{
+    _worldPacket << QuestGiver.Guid;
+    _worldPacket << uint8(QuestGiver.Status);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::Quest::QuestGiverStatusMultiple::Write()
+{
+    _worldPacket << uint32(QuestGiver.size());
+    for (QuestGiverInfo const& questGiver : QuestGiver)
+    {
+        _worldPacket << questGiver.Guid;
+        _worldPacket << uint8(questGiver.Status);
+    }
+
+    return &_worldPacket;
+}
+
 void WorldPackets::Quest::QueryQuestInfo::Read()
 {
     _worldPacket >> QuestID;
@@ -25,15 +50,15 @@ void WorldPackets::Quest::QueryQuestInfo::Read()
 WorldPacket const* WorldPackets::Quest::QueryQuestInfoResponse::Write()
 {
     _worldPacket << uint32(Info.QuestID);
-    _worldPacket << uint32(Info.QuestMethod);
+    _worldPacket << uint32(Info.QuestType);
     _worldPacket << uint32(Info.QuestLevel);
     _worldPacket << uint32(Info.QuestMinLevel);
     _worldPacket << uint32(Info.QuestSortID);
 
-    _worldPacket << uint32(Info.QuestType);
+    _worldPacket << uint32(Info.QuestInfoID);
     _worldPacket << uint32(Info.SuggestedGroupNum);
 
-    for (uint8 i = 0; i < BG_TEAMS_COUNT; ++i)
+    for (uint8 i = 0; i < PVP_TEAMS_COUNT; ++i)
     {
         _worldPacket << uint32(Info.RequiredFactionId[i]);
         _worldPacket << uint32(Info.RequiredFactionValue[i]);
@@ -42,11 +67,7 @@ WorldPacket const* WorldPackets::Quest::QueryQuestInfoResponse::Write()
     _worldPacket << uint32(Info.RewardNextQuest);
     _worldPacket << uint32(Info.RewardXPDifficulty);
 
-    if ((Info.Flags & QUEST_FLAGS_HIDDEN_REWARDS) != 0)
-        _worldPacket << uint32(0);
-    else
-        _worldPacket << uint32(Info.RewardMoney);
-
+    _worldPacket << uint32(Info.RewardMoney);
     _worldPacket << uint32(Info.RewardBonusMoney);
     _worldPacket << uint32(Info.RewardDisplaySpell);
     _worldPacket << int32(Info.RewardSpell);
@@ -54,65 +75,55 @@ WorldPacket const* WorldPackets::Quest::QueryQuestInfoResponse::Write()
     _worldPacket << uint32(Info.RewardHonor);
     _worldPacket << float(Info.RewardKillHonor);
     _worldPacket << uint32(Info.StartItem);
-    _worldPacket << uint32(Info.Flags & 0xFFFF);
-    _worldPacket << uint32(Info.RewardTitleId);
+    _worldPacket << uint32(Info.Flags);
+    _worldPacket << uint32(Info.RewardTitle);
     _worldPacket << uint32(Info.RequiredPlayerKills);
     _worldPacket << uint32(Info.RewardTalents);
     _worldPacket << uint32(Info.RewardArenaPoints);
-    _worldPacket << uint32(0);                                    // review rep show mask
+    _worldPacket << uint32(Info.RewardFactionFlags);
 
-    if ((Info.Flags & QUEST_FLAGS_HIDDEN_REWARDS) != 0)
+    for (uint8 i = 0; i < QUEST_REWARD_ITEM_COUNT; ++i)
     {
-        for (uint8 i = 0; i < QUEST_REWARDS_COUNT; ++i)
-            _worldPacket << uint32(0) << uint32(0);
-        for (uint8 i = 0; i < QUEST_REWARD_CHOICES_COUNT; ++i)
-            _worldPacket << uint32(0) << uint32(0);
+        _worldPacket << uint32(Info.RewardItems[i]);
+        _worldPacket << uint32(Info.RewardAmount[i]);
     }
-    else
+    for (uint8 i = 0; i < QUEST_REWARD_CHOICES_COUNT; ++i)
     {
-        for (uint8 i = 0; i < QUEST_REWARDS_COUNT; ++i)
-        {
-            _worldPacket << uint32(Info.RewardItems[i]);
-            _worldPacket << uint32(Info.RewardAmount[i]);
-        }
-        for (uint8 i = 0; i < QUEST_REWARD_CHOICES_COUNT; ++i)
-        {
-            _worldPacket << uint32(Info.UnfilteredChoiceItems[i].ItemID);
-            _worldPacket << uint32(Info.UnfilteredChoiceItems[i].Quantity);
-        }
+        _worldPacket << uint32(Info.UnfilteredChoiceItems[i].ItemID);
+        _worldPacket << uint32(Info.UnfilteredChoiceItems[i].Quantity);
     }
 
-    for (uint8 i = 0; i < QUEST_REPUTATIONS_COUNT; ++i)             // reward factions ids
+    for (uint8 i = 0; i < QUEST_REWARD_REPUTATIONS_COUNT; ++i)
         _worldPacket << uint32(Info.RewardFactionID[i]);
 
-    for (uint8 i = 0; i < QUEST_REPUTATIONS_COUNT; ++i)             // columnid+1 QuestFactionReward.dbc?
+    for (uint8 i = 0; i < QUEST_REWARD_REPUTATIONS_COUNT; ++i)
         _worldPacket << int32(Info.RewardFactionValue[i]);
 
-    for (uint8 i = 0; i < QUEST_REPUTATIONS_COUNT; ++i)             // unk (0)
-        _worldPacket << int32(Info.RewardFactionValueOverride[i]);
+    for (uint8 i = 0; i < QUEST_REWARD_REPUTATIONS_COUNT; ++i)
+        _worldPacket << int32(Info.RewardFactionOverride[i]);
 
     _worldPacket << uint32(Info.POIContinent);
     _worldPacket << float(Info.POIx);
     _worldPacket << float(Info.POIy);
     _worldPacket << uint32(Info.POIPriority);
 
-    _worldPacket << Info.Title;
-    _worldPacket << Info.Objectives;
-    _worldPacket << Info.Details;
+    _worldPacket << Info.LogTitle;
+    _worldPacket << Info.LogDescription;
+    _worldPacket << Info.QuestDescription;
     _worldPacket << Info.AreaDescription;
-    _worldPacket << Info.CompletedText;
+    _worldPacket << Info.QuestCompletionLog;
 
     for (uint8 i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
     {
         if (Info.RequiredNpcOrGo[i] < 0)
-            _worldPacket << uint32((Info.RequiredNpcOrGo[i] * (-1)) | 0x80000000);    // client expects gameobject template id in form (id|0x80000000)
+            _worldPacket << uint32(-Info.RequiredNpcOrGo[i] | 0x80000000);    // client expects gameobject template id in form (id|0x80000000)
         else
             _worldPacket << uint32(Info.RequiredNpcOrGo[i]);
 
         _worldPacket << uint32(Info.RequiredNpcOrGoCount[i]);
 
         _worldPacket << uint32(Info.ItemDrop[i]);
-        _worldPacket << uint32(0);                                     // req source count?
+        _worldPacket << uint32(Info.ItemDropQuantity[i]);
     }
 
     for (uint8 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
@@ -123,6 +134,178 @@ WorldPacket const* WorldPackets::Quest::QueryQuestInfoResponse::Write()
 
     for (uint8 i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
         _worldPacket << Info.ObjectiveText[i];
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::Quest::QuestGiverQuestDetails::Write()
+{
+    _worldPacket << QuestGiverGUID;
+    _worldPacket << InformUnit;
+    _worldPacket << uint32(QuestID);
+    _worldPacket << QuestTitle;
+    _worldPacket << DescriptionText;
+    _worldPacket << LogDescription;
+    _worldPacket << uint8(AutoLaunched);
+    _worldPacket << uint32(Flags);
+    _worldPacket << uint32(SuggestedGroupNum);
+    _worldPacket << uint8(StartCheat);
+
+    _worldPacket << uint32(Rewards.UnfilteredChoiceItems.size());
+    for (WorldPackets::Quest::QuestChoiceItem const& item : Rewards.UnfilteredChoiceItems)
+    {
+        _worldPacket << uint32(item.ItemID);
+        _worldPacket << uint32(item.Quantity);
+        _worldPacket << uint32(item.DisplayID);
+    }
+
+    _worldPacket << uint32(Rewards.RewardItems.size());
+    for (WorldPackets::Quest::QuestChoiceItem const& item : Rewards.RewardItems)
+    {
+        _worldPacket << uint32(item.ItemID);
+        _worldPacket << uint32(item.Quantity);
+        _worldPacket << uint32(item.DisplayID);
+    }
+
+    _worldPacket << uint32(Rewards.RewardMoney);
+    _worldPacket << uint32(Rewards.RewardXPDifficulty);
+    _worldPacket << uint32(Rewards.RewardHonor);
+    _worldPacket << float(Rewards.RewardKillHonor);
+    _worldPacket << uint32(Rewards.RewardDisplaySpell);
+    _worldPacket << int32(Rewards.RewardSpell);
+    _worldPacket << uint32(Rewards.RewardTitleId);
+    _worldPacket << uint32(Rewards.RewardTalents);
+    _worldPacket << uint32(Rewards.RewardArenaPoints);
+    _worldPacket << uint32(Rewards.RewardFactionFlags);
+
+    for (uint32 factionId : Rewards.RewardFactionID)
+        _worldPacket << uint32(factionId);
+
+    for (int32 value : Rewards.RewardFactionValue)
+        _worldPacket << int32(value);
+
+    for (int32 valueOverride : Rewards.RewardFactionOverride)
+        _worldPacket << int32(valueOverride);
+
+    _worldPacket << int32(DescEmotes.size());
+    for (QuestDescEmote const& emote : DescEmotes)
+    {
+        _worldPacket << uint32(emote.Type);
+        _worldPacket << uint32(emote.Delay);
+    }
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::Quest::QuestGiverRequestItems::Write()
+{
+    _worldPacket << QuestGiverGUID;
+    _worldPacket << int32(QuestID);
+    _worldPacket << QuestTitle;
+    _worldPacket << CompletionText;
+    _worldPacket << int32(CompEmoteDelay);
+    _worldPacket << int32(CompEmoteType);
+    _worldPacket << int32(AutoLaunched ? 1 : 0);
+    _worldPacket << uint32(QuestFlags);
+    _worldPacket << int32(SuggestPartyMembers);
+    _worldPacket << int32(MoneyToGet);
+    _worldPacket << uint32(Collect.size());
+
+    for (QuestObjectiveCollect const& obj : Collect)
+    {
+        _worldPacket << int32(obj.ObjectID);
+        _worldPacket << int32(obj.Amount);
+        _worldPacket << uint32(obj.DisplayID);
+    }
+
+    _worldPacket << uint32(Explored);
+    _worldPacket << uint32(HasItems);
+    _worldPacket << uint32(HasFaction);
+    _worldPacket << uint32(HasMoney);
+
+    return &_worldPacket;
+}
+
+void WorldPackets::Quest::QuestGiverRequestReward::Read()
+{
+    _worldPacket >> QuestGiverGUID;
+    _worldPacket >> QuestID;
+}
+
+void WorldPackets::Quest::QuestGiverQueryQuest::Read()
+{
+    _worldPacket >> QuestGiverGUID;
+    _worldPacket >> QuestID;
+    _worldPacket >> RespondToGiver;
+}
+
+WorldPacket const* WorldPackets::Quest::QuestGiverOfferRewardMessage::Write()
+{
+    _worldPacket << QuestGiverGUID;
+    _worldPacket << uint32(QuestID);
+
+    _worldPacket << QuestTitle;
+    _worldPacket << RewardText;
+
+    _worldPacket << uint8(AutoLaunched);
+    _worldPacket << uint32(Flags);
+    _worldPacket << uint32(SuggestedGroupNum);
+
+    _worldPacket << uint32(Emotes.size());
+    for (WorldPackets::Quest::QuestDescEmote const& emote : Emotes)
+    {
+        _worldPacket << uint32(emote.Delay);
+        _worldPacket << uint32(emote.Type);
+    }
+
+    _worldPacket << uint32(Rewards.UnfilteredChoiceItems.size());
+    for (WorldPackets::Quest::QuestChoiceItem const& item : Rewards.UnfilteredChoiceItems)
+    {
+        _worldPacket << uint32(item.ItemID);
+        _worldPacket << uint32(item.Quantity);
+        _worldPacket << uint32(item.DisplayID);
+    }
+
+    _worldPacket << uint32(Rewards.RewardItems.size());
+    for (WorldPackets::Quest::QuestChoiceItem const& item : Rewards.RewardItems)
+    {
+        _worldPacket << uint32(item.ItemID);
+        _worldPacket << uint32(item.Quantity);
+        _worldPacket << uint32(item.DisplayID);
+    }
+
+    _worldPacket << uint32(Rewards.RewardMoney);
+    _worldPacket << uint32(Rewards.RewardXPDifficulty);
+
+    _worldPacket << uint32(Rewards.RewardHonor);
+    _worldPacket << float(Rewards.RewardKillHonor);
+    _worldPacket << uint32(0); // Unknown value. Read in the packet handler but unused
+    _worldPacket << uint32(Rewards.RewardDisplaySpell);
+    _worldPacket << int32(Rewards.RewardSpell);
+    _worldPacket << uint32(Rewards.RewardTitleId);
+    _worldPacket << uint32(Rewards.RewardTalents);
+    _worldPacket << uint32(Rewards.RewardArenaPoints);
+    _worldPacket << uint32(Rewards.RewardFactionFlags);
+
+    for (uint32 factionId : Rewards.RewardFactionID)
+        _worldPacket << uint32(factionId);
+
+    for (uint32 value : Rewards.RewardFactionValue)
+        _worldPacket << int32(value);
+
+    for (uint32 valueOverride : Rewards.RewardFactionOverride)
+        _worldPacket << int32(valueOverride);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* WorldPackets::Quest::QueryQuestsCompletedResponse::Write()
+{
+    _worldPacket.reserve(sizeof(uint32) + QuestsCompleted->size() * sizeof(uint32));
+
+    _worldPacket << uint32(QuestsCompleted->size());
+    for (uint32 questId : *QuestsCompleted)
+        _worldPacket << uint32(questId);
 
     return &_worldPacket;
 }

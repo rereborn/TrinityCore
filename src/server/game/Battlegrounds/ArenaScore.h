@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,15 +21,15 @@
 #include "BattlegroundScore.h"
 #include <sstream>
 
-struct TC_GAME_API ArenaScore : public BattlegroundScore
+struct TC_GAME_API ArenaScore final : public BattlegroundScore
 {
     friend class Arena;
 
     protected:
-        ArenaScore(ObjectGuid playerGuid, uint32 team) : BattlegroundScore(playerGuid), TeamId(team == ALLIANCE ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE) { }
+        ArenaScore(ObjectGuid playerGuid, uint32 team) : BattlegroundScore(playerGuid), TeamId(team == ALLIANCE ? PVP_TEAM_ALLIANCE : PVP_TEAM_HORDE) { }
 
-        void AppendToPacket(WorldPacket& data) final override;
-        void BuildObjectivesBlock(WorldPacket& data) final override;
+        void AppendToPacket(WorldPackets::Battleground::PVPLogData_Player& playerData) override;
+        void BuildObjectivesBlock(WorldPackets::Battleground::PVPLogData_Player& playerData) override;
 
         // For Logging purpose
         std::string ToString() const override
@@ -39,7 +39,7 @@ struct TC_GAME_API ArenaScore : public BattlegroundScore
             return stream.str();
         }
 
-        uint8 TeamId; // BattlegroundTeamId
+        uint8 TeamId; // PvPTeamId
 };
 
 struct TC_GAME_API ArenaTeamScore
@@ -49,8 +49,6 @@ struct TC_GAME_API ArenaTeamScore
 
     protected:
         ArenaTeamScore() : RatingChange(0), MatchmakerRating(0) { }
-
-        virtual ~ArenaTeamScore() { }
 
         void Reset()
         {
@@ -65,9 +63,6 @@ struct TC_GAME_API ArenaTeamScore
             MatchmakerRating = matchMakerRating;
             TeamName = teamName;
         }
-
-        void BuildRatingInfoBlock(WorldPacket& data);
-        void BuildTeamInfoBlock(WorldPacket& data);
 
         int32 RatingChange;
         uint32 MatchmakerRating;

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,6 +22,17 @@
 #include "MoveSplineInitArgs.h"
 #include <G3D/Vector3.h>
 
+enum class AnimTier : uint8;
+
+namespace WorldPackets
+{
+    namespace Movement
+    {
+        class CommonMovement;
+        class MonsterMove;
+    }
+}
+
 namespace Movement
 {
     struct Location : public Vector3
@@ -40,8 +50,12 @@ namespace Movement
     // point can have vertical acceleration motion componemt(used in fall, parabolic movement)
     class TC_GAME_API MoveSpline
     {
+        friend class WorldPackets::Movement::CommonMovement;
+        friend class WorldPackets::Movement::MonsterMove;
+
     public:
         typedef Spline<int32> MySpline;
+
         enum UpdateResult
         {
             Result_None         = 0x01,
@@ -49,7 +63,6 @@ namespace Movement
             Result_NextCycle    = 0x04,
             Result_NextSegment  = 0x08
         };
-        friend class PacketBuilder;
 
     protected:
         MySpline        spline;
@@ -69,6 +82,7 @@ namespace Movement
         int32           effect_start_time;
         int32           point_Idx;
         int32           point_Idx_offset;
+        float           velocity;
 
         void init_spline(MoveSplineInitArgs const& args);
 
@@ -81,12 +95,13 @@ namespace Movement
         int32 next_timestamp() const { return spline.length(point_Idx + 1); }
         int32 segment_time_elapsed() const { return next_timestamp() - time_passed; }
         int32 timeElapsed() const { return Duration() - time_passed; }
-        int32 timePassed() const { return time_passed; }
 
     public:
+        int32 timePassed() const { return time_passed; }
         int32 Duration() const { return spline.length(); }
         MySpline const& _Spline() const { return spline; }
         int32 _currentSplineIdx() const { return point_Idx; }
+        float Velocity() const { return velocity; }
         void _Finalize();
         void _Interrupt() { splineflags.done = true; }
 
@@ -122,8 +137,15 @@ namespace Movement
         Vector3 CurrentDestination() const { return Initialized() ? spline.getPoint(point_Idx + 1) : Vector3(); }
         int32 currentPathIdx() const;
 
+        bool HasAnimation() const { return splineflags.animation; }
+        AnimTier GetAnimTier() const { return static_cast<AnimTier>(splineflags.animTier); }
+
         bool onTransport;
         std::string ToString() const;
+        bool HasStarted() const
+        {
+            return time_passed > 0;
+        }
     };
 }
 #endif // TRINITYSERVER_MOVEPLINE_H

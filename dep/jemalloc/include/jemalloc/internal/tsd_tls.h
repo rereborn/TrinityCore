@@ -1,11 +1,17 @@
 #ifdef JEMALLOC_INTERNAL_TSD_TLS_H
-#error This file should be included only once, by tsd.h.
+#	error This file should be included only once, by tsd.h.
 #endif
 #define JEMALLOC_INTERNAL_TSD_TLS_H
 
-extern __thread tsd_t tsd_tls;
+#include "jemalloc/internal/jemalloc_preamble.h"
+#include "jemalloc/internal/tsd_internals.h"
+#include "jemalloc/internal/tsd_types.h"
+
+#define JEMALLOC_TSD_TYPE_ATTR(type) __thread type JEMALLOC_TLS_MODEL
+
+extern JEMALLOC_TSD_TYPE_ATTR(tsd_t) tsd_tls;
 extern pthread_key_t tsd_tsd;
-extern bool tsd_booted;
+extern bool          tsd_booted;
 
 /* Initialization/cleanup. */
 JEMALLOC_ALWAYS_INLINE bool
@@ -40,7 +46,6 @@ tsd_get_allocates(void) {
 /* Get/set. */
 JEMALLOC_ALWAYS_INLINE tsd_t *
 tsd_get(bool init) {
-	assert(tsd_booted);
 	return &tsd_tls;
 }
 

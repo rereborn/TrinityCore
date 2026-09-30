@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -26,7 +26,7 @@
 #include "SpellInfo.h"
 #include "SpellScript.h"
 
-enum Texts
+enum NajentusTexts
 {
     SAY_AGGRO   = 0,
     SAY_NEEDLE  = 1,
@@ -36,19 +36,22 @@ enum Texts
     SAY_DEATH   = 5
 };
 
-enum Spells
+enum NajentusSpells
 {
     SPELL_NEEDLE_SPINE_TARGETING = 39992,
-    SPELL_NEEDLE_SPINE           = 39835,
     SPELL_TIDAL_BURST            = 39878,
     SPELL_TIDAL_SHIELD           = 39872,
     SPELL_IMPALING_SPINE         = 39837,
     SPELL_CREATE_NAJENTUS_SPINE  = 39956,
     SPELL_HURL_SPINE             = 39948,
-    SPELL_BERSERK                = 26662
+    SPELL_BERSERK                = 26662,
+
+    // Scripts
+    SPELL_NEEDLE_SPINE           = 39835,
+    SPELL_NEEDLE_SPINE_EXPLOSION = 39968
 };
 
-enum Events
+enum NajentusEvents
 {
     EVENT_BERSERK = 1,
     EVENT_YELL    = 2,
@@ -57,12 +60,13 @@ enum Events
     EVENT_SHIELD  = 5
 };
 
-enum Misc
+enum NajentusMisc
 {
     DATA_REMOVE_IMPALING_SPINE   = 1,
     ACTION_RESET_IMPALING_TARGET = 2
 };
 
+// 22887 - High Warlord Naj'entus
 struct boss_najentus : public BossAI
 {
     boss_najentus(Creature* creature) : BossAI(creature, DATA_HIGH_WARLORD_NAJENTUS) { }
@@ -91,25 +95,25 @@ struct boss_najentus : public BossAI
         Talk(SAY_DEATH);
     }
 
-    void SpellHit(Unit* /*caster*/, SpellInfo const* spell) override
+    void SpellHit(WorldObject* /*caster*/, SpellInfo const* spellInfo) override
     {
-        if (spell->Id == SPELL_HURL_SPINE && me->HasAura(SPELL_TIDAL_SHIELD))
+        if (spellInfo->Id == SPELL_HURL_SPINE && me->HasAura(SPELL_TIDAL_SHIELD))
         {
             me->RemoveAurasDueToSpell(SPELL_TIDAL_SHIELD);
             DoCastSelf(SPELL_TIDAL_BURST, true);
-            events.RescheduleEvent(EVENT_SPINE, Seconds(2));
+            events.RescheduleEvent(EVENT_SPINE, 2s);
         }
     }
 
-    void JustEngagedWith(Unit* /*who*/) override
+    void JustEngagedWith(Unit* who) override
     {
-        _JustEngagedWith();
+        BossAI::JustEngagedWith(who);
         Talk(SAY_AGGRO);
-        events.ScheduleEvent(EVENT_NEEDLE, Seconds(2));
-        events.ScheduleEvent(EVENT_SHIELD, Seconds(60));
-        events.ScheduleEvent(EVENT_SPINE, Seconds(30));
-        events.ScheduleEvent(EVENT_BERSERK, Seconds(480));
-        events.ScheduleEvent(EVENT_YELL, Seconds(45), Seconds(100));
+        events.ScheduleEvent(EVENT_NEEDLE, 2s);
+        events.ScheduleEvent(EVENT_SHIELD, 1min);
+        events.ScheduleEvent(EVENT_SPINE, 30s);
+        events.ScheduleEvent(EVENT_BERSERK, 480s);
+        events.ScheduleEvent(EVENT_YELL, 45s, 100s);
     }
 
     uint32 GetData(uint32 data) const override
@@ -142,31 +146,31 @@ struct boss_najentus : public BossAI
         {
             case EVENT_SHIELD:
                 DoCastSelf(SPELL_TIDAL_SHIELD, true);
-                events.RescheduleEvent(EVENT_SPINE, Seconds(50));
-                events.Repeat(Seconds(55), Seconds(60));
+                events.RescheduleEvent(EVENT_SPINE, 50s);
+                events.Repeat(55s, 60s);
                 break;
             case EVENT_BERSERK:
                 Talk(SAY_ENRAGE);
                 DoCastSelf(SPELL_BERSERK, true);
                 break;
             case EVENT_SPINE:
-                if (Unit* target = SelectTarget(SELECT_TARGET_RANDOM, 1, 200.0f, true))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 1, 200.0f, true))
                 {
                     DoCast(target, SPELL_IMPALING_SPINE, true);
                     _spineTargetGUID = target->GetGUID();
                     //must let target summon, otherwise you cannot click the spine
-                    target->SummonGameObject(GO_NAJENTUS_SPINE, *target, QuaternionData(), 30);
+                    target->SummonGameObject(GO_NAJENTUS_SPINE, *target, QuaternionData(), 30s);
                     Talk(SAY_NEEDLE);
                 }
-                events.Repeat(Seconds(20), Seconds(25));
+                events.Repeat(20s, 25s);
                 break;
             case EVENT_NEEDLE:
                 DoCastSelf(SPELL_NEEDLE_SPINE_TARGETING, true);
-                events.Repeat(Seconds(2));
+                events.Repeat(2s);
                 break;
             case EVENT_YELL:
                 Talk(SAY_SPECIAL);
-                events.Repeat(Seconds(25), Seconds(100));
+                events.Repeat(25s, 100s);
                 break;
             default:
                 break;
@@ -177,11 +181,12 @@ private:
     ObjectGuid _spineTargetGUID;
 };
 
+// 185584 - Naj'entus Spine
 struct go_najentus_spine : public GameObjectAI
 {
     go_najentus_spine(GameObject* go) : GameObjectAI(go), _instance(go->GetInstanceScript()) { }
 
-    bool GossipHello(Player* player) override
+    bool OnGossipHello(Player* player) override
     {
         if (!_instance)
             return false;
@@ -226,9 +231,31 @@ class spell_najentus_needle_spine : public SpellScript
     }
 };
 
+// 39835 - Needle Spine
+class spell_najentus_needle_spine_explosion : public SpellScript
+{
+    PrepareSpellScript(spell_najentus_needle_spine_explosion);
+
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_NEEDLE_SPINE_EXPLOSION });
+    }
+
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        GetHitUnit()->CastSpell(GetHitUnit(), SPELL_NEEDLE_SPINE_EXPLOSION, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_najentus_needle_spine_explosion::HandleScript, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 void AddSC_boss_najentus()
 {
     RegisterBlackTempleCreatureAI(boss_najentus);
     RegisterGameObjectAI(go_najentus_spine);
     RegisterSpellScript(spell_najentus_needle_spine);
+    RegisterSpellScript(spell_najentus_needle_spine_explosion);
 }

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -39,9 +38,10 @@ enum PasswordChangeSecurity
     PW_RBAC
 };
 
-#define MAX_PASS_STR 16
-#define MAX_ACCOUNT_STR 16
-#define MAX_EMAIL_STR 64
+inline constexpr std::size_t MAX_ACCOUNT_STR[2] = { 16, 64 };
+inline constexpr std::size_t MAX_ACCOUNT_NAME_BYTES = 255;
+inline constexpr std::size_t MAX_PASS_STR = 16;
+inline constexpr std::size_t MAX_EMAIL_STR = 64;
 
 namespace rbac
 {
@@ -67,14 +67,13 @@ class TC_GAME_API AccountMgr
         static bool CheckPassword(uint32 accountId, std::string password);
         static bool CheckEmail(uint32 accountId, std::string newEmail);
 
-        static uint32 GetId(std::string const& username);
-        static uint32 GetSecurity(uint32 accountId);
+        static uint32 GetId(std::string_view username);
         static uint32 GetSecurity(uint32 accountId, int32 realmId);
+        [[nodiscard]] static QueryCallback GetSecurityAsync(uint32 accountId, int32 realmId, std::function<void(uint32)> callback);
         static bool GetName(uint32 accountId, std::string& name);
         static bool GetEmail(uint32 accountId, std::string& email);
         static uint32 GetCharactersCount(uint32 accountId);
 
-        static std::string CalculateShaPassHash(std::string const& name, std::string const& password);
         static bool IsBannedAccount(std::string const& name);
         static bool IsPlayerAccount(uint32 gmlevel);
         static bool IsAdminAccount(uint32 gmlevel);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,15 +23,19 @@
 #define MTScriptName "instance_mana_tombs"
 #define DataHeader "MT"
 
-uint32 const EncounterCount = 4;
+uint32 constexpr EncounterCount = 4;
 
 enum MTDataTypes
 {
     // Encounter States/Boss GUIDs
     DATA_PANDEMONIUS            = 0,
     DATA_TAVAROK                = 1,
-    DATA_NEXUSPRINCE_SHAFFAR    = 2,
-    DATA_YOR                    = 3
+    DATA_NEXUSPRINCE_SHAFFAR    = 2
+};
+
+enum MTCreatureIds
+{
+    NPC_TAVAROK                 = 18343
 };
 
 template <class AI, class T>
@@ -39,5 +43,7 @@ inline AI* GetManaTombsAI(T* obj)
 {
     return GetInstanceAI<AI>(obj, MTScriptName);
 }
+
+#define RegisterManaTombsCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetManaTombsAI)
 
 #endif // MANA_TOMBS_H_

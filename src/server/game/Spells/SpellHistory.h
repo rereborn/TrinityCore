@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,7 +21,6 @@
 #include "SharedDefines.h"
 #include "DatabaseEnvFwd.h"
 #include "GameTime.h"
-#include <deque>
 #include <vector>
 #include <unordered_map>
 
@@ -32,6 +31,11 @@ class SpellInfo;
 class Unit;
 class WorldPacket;
 struct SpellCategoryEntry;
+
+namespace WorldPackets::Spells
+{
+class InitialSpells;
+}
 
 /// Spell cooldown flags sent in SMSG_SPELL_COOLDOWN
 enum SpellCooldownFlags
@@ -66,7 +70,7 @@ public:
     void LoadFromDB(PreparedQueryResult cooldownsResult);
 
     template<class OwnerType>
-    void SaveToDB(SQLTransaction& trans);
+    void SaveToDB(CharacterDatabaseTransaction trans);
 
     void Update();
 
@@ -75,6 +79,7 @@ public:
     bool IsReady(SpellInfo const* spellInfo, uint32 itemId = 0, bool ignoreCategoryCooldown = false) const;
     template<class OwnerType>
     void WritePacket(WorldPacket& packet) const;
+    void WritePacket(WorldPackets::Spells::InitialSpells* initialSpells) const;
 
     // Cooldowns
     static Clock::duration const InfinityCooldownDelay;  // used for set "infinity cooldowns" for spells and check
@@ -86,7 +91,7 @@ public:
     template<class Type, class Period>
     void AddCooldown(uint32 spellId, uint32 itemId, std::chrono::duration<Type, Period> cooldownDuration)
     {
-        Clock::time_point now = GameTime::GetGameTimeSystemPoint();
+        Clock::time_point now = GameTime::GetSystemTime();
         AddCooldown(spellId, itemId, now + std::chrono::duration_cast<Clock::duration>(cooldownDuration), 0, now);
     }
 
@@ -117,6 +122,7 @@ public:
     void ResetAllCooldowns();
     bool HasCooldown(SpellInfo const* spellInfo, uint32 itemId = 0, bool ignoreCategoryCooldown = false) const;
     bool HasCooldown(uint32 spellId, uint32 itemId = 0, bool ignoreCategoryCooldown = false) const;
+    bool HasCooldownOnHold(uint32 spellId) const;
     uint32 GetRemainingCooldown(SpellInfo const* spellInfo) const;
 
     // School lockouts
@@ -129,6 +135,8 @@ public:
     void CancelGlobalCooldown(SpellInfo const* spellInfo);
 
     void BuildCooldownPacket(WorldPacket& data, uint8 flags, uint32 spellId, uint32 cooldown) const;
+
+    static void GetCooldownDurations(SpellInfo const* spellInfo, uint32 itemId, int32* cooldown, uint32* categoryId, int32* categoryCooldown);
 
     CooldownStorageType::size_type GetCooldownsSizeForPacket() const { return _spellCooldowns.size(); }
     void SaveCooldownStateBeforeDuel();
@@ -145,8 +153,6 @@ private:
 
     typedef std::unordered_map<uint32, uint32> PacketCooldowns;
     void BuildCooldownPacket(WorldPacket& data, uint8 flags, PacketCooldowns const& cooldowns) const;
-
-    static void GetCooldownDurations(SpellInfo const* spellInfo, uint32 itemId, int32* cooldown, uint32* categoryId, int32* categoryCooldown);
 
     Unit* _owner;
     CooldownStorageType _spellCooldowns;

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,22 +21,12 @@
 #include "Define.h"
 #include "Realm.h"
 #include <map>
-#include <vector>
-#include <unordered_set>
 
 namespace boost
 {
     namespace system
     {
         class error_code;
-    }
-}
-
-namespace Trinity
-{
-    namespace Asio
-    {
-        class IoContext;
     }
 }
 
@@ -67,8 +56,8 @@ private:
 
     RealmMap _realms;
     uint32 _updateInterval;
-    std::unique_ptr<boost::asio::deadline_timer> _updateTimer;
-    std::unique_ptr<boost::asio::ip::tcp_resolver> _resolver;
+    std::unique_ptr<Trinity::Asio::DeadlineTimer> _updateTimer;
+    std::unique_ptr<Trinity::Asio::Resolver> _resolver;
 };
 
 #define sRealmList RealmList::Instance()
