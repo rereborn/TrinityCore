@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,7 +19,6 @@
 #include "AreaBoundary.h"
 #include "Creature.h"
 #include "InstanceScript.h"
-#include "Map.h"
 #include "obsidian_sanctum.h"
 
 /* Obsidian Sanctum encounters:
@@ -31,6 +30,14 @@ BossBoundaryData const boundaries =
     { DATA_SARTHARION, new RectangleBoundary(3218.86f, 3275.69f, 484.68f, 572.4f) }
 };
 
+DungeonEncounterData const encounters[] =
+{
+    { DATA_SARTHARION, {{ 1090 }} },
+    { DATA_TENEBRON, {{ 1092 }} },
+    { DATA_SHADRON, {{ 1091 }} },
+    { DATA_VESPERON, {{ 1093 }} }
+};
+
 class instance_obsidian_sanctum : public InstanceMapScript
 {
 public:
@@ -38,11 +45,12 @@ public:
 
     struct instance_obsidian_sanctum_InstanceMapScript : public InstanceScript
     {
-        instance_obsidian_sanctum_InstanceMapScript(Map* map) : InstanceScript(map)
+        instance_obsidian_sanctum_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
         {
             SetHeaders(DataHeader);
             SetBossNumber(EncounterCount);
             LoadBossBoundaries(boundaries);
+            LoadDungeonEncounterData(encounters);
         }
 
         void OnCreatureCreate(Creature* creature) override
@@ -57,14 +65,17 @@ public:
                 case NPC_TENEBRON:
                     tenebronGUID = creature->GetGUID();
                     creature->setActive(true);
+                    creature->SetFarVisible(true);
                     break;
                 case NPC_SHADRON:
                     shadronGUID = creature->GetGUID();
                     creature->setActive(true);
+                    creature->SetFarVisible(true);
                     break;
                 case NPC_VESPERON:
                     vesperonGUID = creature->GetGUID();
                     creature->setActive(true);
+                    creature->SetFarVisible(true);
                     break;
             }
         }

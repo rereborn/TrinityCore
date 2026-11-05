@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,10 +16,9 @@
  */
 
 #include "MapUpdater.h"
+#include "DatabaseEnv.h"
 #include "Map.h"
-
-#include <mutex>
-
+#include "Metric.h"
 
 class MapUpdateRequest
 {
@@ -39,6 +37,7 @@ class MapUpdateRequest
 
         void call()
         {
+            TC_METRIC_TIMER("map_update_time_diff", TC_METRIC_TAG("map_id", std::to_string(m_map.GetId())));
             m_map.Update (m_diff);
             m_updater.update_finished();
         }
@@ -47,9 +46,7 @@ class MapUpdateRequest
 void MapUpdater::activate(size_t num_threads)
 {
     for (size_t i = 0; i < num_threads; ++i)
-    {
-        _workerThreads.push_back(std::thread(&MapUpdater::WorkerThread, this));
-    }
+        _workerThreads.emplace_back(&MapUpdater::WorkerThread, this);
 }
 
 void MapUpdater::deactivate()
@@ -61,38 +58,33 @@ void MapUpdater::deactivate()
     _queue.Cancel();
 
     for (auto& thread : _workerThreads)
-    {
         thread.join();
-    }
 }
 
 void MapUpdater::wait()
 {
-    std::unique_lock<std::mutex> lock(_lock);
+    std::unique_lock lock(_lock);
 
-    while (pending_requests > 0)
-        _condition.wait(lock);
-
-    lock.unlock();
+    _condition.wait(lock, [&] { return pending_requests == 0; });
 }
 
 void MapUpdater::schedule_update(Map& map, uint32 diff)
 {
-    std::lock_guard<std::mutex> lock(_lock);
+    std::scoped_lock lock(_lock);
 
     ++pending_requests;
 
     _queue.Push(new MapUpdateRequest(map, *this, diff));
 }
 
-bool MapUpdater::activated()
+bool MapUpdater::activated() const
 {
-    return _workerThreads.size() > 0;
+    return !_workerThreads.empty();
 }
 
 void MapUpdater::update_finished()
 {
-    std::lock_guard<std::mutex> lock(_lock);
+    std::scoped_lock lock(_lock);
 
     --pending_requests;
 
@@ -101,7 +93,12 @@ void MapUpdater::update_finished()
 
 void MapUpdater::WorkerThread()
 {
-    while (1)
+    LoginDatabase.WarnAboutSyncQueries(true);
+    CharacterDatabase.WarnAboutSyncQueries(true);
+    WorldDatabase.WarnAboutSyncQueries(true);
+    HotfixDatabase.WarnAboutSyncQueries(true);
+
+    while (true)
     {
         MapUpdateRequest* request = nullptr;
 

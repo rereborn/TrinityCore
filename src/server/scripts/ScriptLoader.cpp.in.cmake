@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,8 +21,6 @@
 #cmakedefine TRINITY_IS_DYNAMIC_SCRIPTLOADER
 
 #include "Define.h"
-#include <vector>
-#include <string>
 
 @TRINITY_SCRIPTS_FORWARD_DECL@
 #ifdef TRINITY_IS_DYNAMIC_SCRIPTLOADER
@@ -33,7 +31,7 @@ extern "C" {
 /// Exposed in script modules to return the script module revision hash.
 TC_SCRIPT_API char const* GetScriptModuleRevisionHash()
 {
-    return _HASH;
+    return TRINITY_GIT_COMMIT_HASH;
 }
 
 /// Exposed in script module to return the name of the script module
@@ -56,7 +54,7 @@ TC_SCRIPT_API void AddScripts()
 /// Exposed in script modules to get the build directive of the module.
 TC_SCRIPT_API char const* GetBuildDirective()
 {
-    return _BUILD_DIRECTIVE;
+    return TRINITY_BUILD_TYPE;
 }
 
 #ifdef TRINITY_IS_DYNAMIC_SCRIPTLOADER

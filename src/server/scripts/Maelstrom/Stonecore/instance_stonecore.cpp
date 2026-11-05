@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -35,7 +35,7 @@
 // TO-DO:
 // - Find out spell IDs for both Stonecore Teleporters (spellclick).
 
-ObjectData const creatureData[] =
+static constexpr ObjectData creatureData[] =
 {
     { NPC_MILLHOUSE_MANASTORM,    DATA_MILLHOUSE_MANASTORM },
     { NPC_CORBORUS,               DATA_CORBORUS },
@@ -43,7 +43,14 @@ ObjectData const creatureData[] =
     { NPC_HIGH_PRIESTESS_AZIL,    DATA_HIGH_PRIESTESS_AZIL },
     { NPC_STONECORE_TELEPORTER,   DATA_STONECORE_TELEPORTER },
     { NPC_STONECORE_TELEPORTER_2, DATA_STONECORE_TELEPORTER_2 },
-    { 0, 0 } // END
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_CORBORUS, {{ 1056 }} },
+    { DATA_SLABHIDE, {{ 1059 }} },
+    { DATA_OZRUK, {{ 1058 }} },
+    { DATA_HIGH_PRIESTESS_AZIL, {{ 1057 }} }
 };
 
 class instance_stonecore : public InstanceMapScript
@@ -53,11 +60,12 @@ class instance_stonecore : public InstanceMapScript
 
         struct instance_stonecore_InstanceScript : public InstanceScript
         {
-            instance_stonecore_InstanceScript(Map* map) : InstanceScript(map)
+            instance_stonecore_InstanceScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(MAX_ENCOUNTER);
-                LoadObjectData(creatureData, nullptr);
+                LoadObjectData(creatureData, {});
+                LoadDungeonEncounterData(encounters);
             }
 
             void OnGameObjectCreate(GameObject* go) override
@@ -93,7 +101,7 @@ class instance_stonecore : public InstanceMapScript
                 creature->SearchFormation();
                 if (CreatureGroup* group = creature->GetFormation())
                 {
-                    switch (group->GetId())
+                    switch (group->GetLeaderSpawnId())
                     {
                         case CREATURE_FORMATION_MILLHOUSE_EVENT_TRASH:
                             millhouseTrashGUIDs.push_back(creature->GetGUID());
@@ -198,13 +206,13 @@ class instance_stonecore : public InstanceMapScript
             void MillhouseEvent_Despawn()
             {
                 if (Creature* Millhouse = GetCreature(DATA_MILLHOUSE_MANASTORM))
-                    Millhouse->DespawnOrUnsummon(3000);
+                    Millhouse->DespawnOrUnsummon(3s);
                 for (GuidVector::const_iterator itr = millhouseTrashGUIDs.begin(); itr != millhouseTrashGUIDs.end(); ++itr)
                     if (Creature* creature = instance->GetCreature(*itr))
-                        creature->DespawnOrUnsummon(3000);
+                        creature->DespawnOrUnsummon(3s);
                 for (GuidVector::const_iterator itr = millhouseLastGroupGUIDs.begin(); itr != millhouseLastGroupGUIDs.end(); ++itr)
                     if (Creature* creature = instance->GetCreature(*itr))
-                        creature->DespawnOrUnsummon(3000);
+                        creature->DespawnOrUnsummon(3s);
             }
 
             void ActivateTeleporter(Creature* teleporter)
@@ -213,7 +221,7 @@ class instance_stonecore : public InstanceMapScript
                     return;
 
                 teleporter->CastSpell(teleporter, SPELL_TELEPORTER_ACTIVE_VISUAL, true);
-                teleporter->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_SPELLCLICK);
+                teleporter->SetNpcFlag(UNIT_NPC_FLAG_SPELLCLICK);
             }
 
             GuidVector millhouseTrashGUIDs;

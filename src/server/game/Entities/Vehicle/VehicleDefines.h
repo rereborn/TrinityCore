@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,13 +15,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TRINITY_VEHICLEDEFINES_H
-#define __TRINITY_VEHICLEDEFINES_H
+#ifndef TRINITYCORE_VEHICLE_DEFINES_H
+#define TRINITYCORE_VEHICLE_DEFINES_H
 
 #include "Define.h"
-#include <vector>
+#include "Duration.h"
+#include "EnumFlag.h"
+#include "ObjectGuid.h"
+#include "Optional.h"
+#include "Position.h"
 #include <map>
+#include <vector>
 
+class Map;
+class WorldObject;
 struct VehicleSeatEntry;
 
 enum PowerType
@@ -76,21 +82,54 @@ enum VehicleSpells
     VEHICLE_SPELL_PARACHUTE                      = 45472
 };
 
+enum class VehicleExitParameters
+{
+    VehicleExitParamNone    = 0, // provided parameters will be ignored
+    VehicleExitParamOffset  = 1, // provided parameters will be used as offset values
+    VehicleExitParamDest    = 2, // provided parameters will be used as absolute destination
+    VehicleExitParamMax
+};
+
+enum class VehicleCustomFlags : uint32
+{
+    None                        = 0x0,
+    DontForceParachuteOnExit    = 0x1
+};
+
+DEFINE_ENUM_FLAG(VehicleCustomFlags);
+
 struct PassengerInfo
 {
     ObjectGuid Guid;
-    bool IsUnselectable;
+    bool IsUninteractible;
+    bool IsGravityDisabled;
 
     void Reset()
     {
         Guid.Clear();
-        IsUnselectable = false;
+        IsUninteractible = false;
+        IsGravityDisabled = false;
     }
+};
+
+struct VehicleSeatAddon
+{
+    VehicleSeatAddon() { }
+    VehicleSeatAddon(float orientatonOffset, float exitX, float exitY, float exitZ, float exitO, uint8 param) :
+        SeatOrientationOffset(orientatonOffset), ExitParameterX(exitX), ExitParameterY(exitY), ExitParameterZ(exitZ),
+        ExitParameterO(exitO), ExitParameter(VehicleExitParameters(param)) { }
+
+    float SeatOrientationOffset = 0.f;
+    float ExitParameterX = 0.f;
+    float ExitParameterY = 0.f;
+    float ExitParameterZ = 0.f;
+    float ExitParameterO = 0.f;
+    VehicleExitParameters ExitParameter = VehicleExitParameters::VehicleExitParamNone;
 };
 
 struct VehicleSeat
 {
-    explicit VehicleSeat(VehicleSeatEntry const* seatInfo) : SeatInfo(seatInfo)
+    explicit VehicleSeat(VehicleSeatEntry const* seatInfo, VehicleSeatAddon const* seatAddon) : SeatInfo(seatInfo), SeatAddon(seatAddon)
     {
         Passenger.Reset();
     }
@@ -98,18 +137,27 @@ struct VehicleSeat
     bool IsEmpty() const { return Passenger.Guid.IsEmpty(); }
 
     VehicleSeatEntry const* SeatInfo;
+    VehicleSeatAddon const* SeatAddon;
     PassengerInfo Passenger;
 };
 
 struct VehicleAccessory
 {
-    VehicleAccessory(uint32 entry, int8 seatId, bool isMinion, uint8 summonType, uint32 summonTime) :
-        AccessoryEntry(entry), IsMinion(isMinion), SummonTime(summonTime), SeatId(seatId), SummonedType(summonType) { }
+    VehicleAccessory(uint32 entry, int8 seatId, bool isMinion, uint8 summonType, uint32 summonTime, Optional<uint32> rideSpellID) :
+        AccessoryEntry(entry), IsMinion(isMinion), SummonTime(summonTime), SeatId(seatId), SummonedType(summonType), RideSpellID(rideSpellID) { }
     uint32 AccessoryEntry;
     bool IsMinion;
     uint32 SummonTime;
     int8 SeatId;
     uint8 SummonedType;
+    Optional<uint32> RideSpellID;
+};
+
+struct VehicleTemplate
+{
+    Milliseconds DespawnDelay = Milliseconds::zero();
+    Optional<float> Pitch;
+    EnumFlag<VehicleCustomFlags> CustomFlags = VehicleCustomFlags::None;
 };
 
 typedef std::vector<VehicleAccessory> VehicleAccessoryList;
@@ -124,35 +172,23 @@ protected:
     virtual ~TransportBase() { }
 
 public:
+    virtual ObjectGuid GetTransportGUID() const = 0;
+
     /// This method transforms supplied transport offsets into global coordinates
-    virtual void CalculatePassengerPosition(float& x, float& y, float& z, float* o = NULL) const = 0;
+    virtual Position GetPositionWithOffset(Position const& offset) const = 0;
 
     /// This method transforms supplied global coordinates into local offsets
-    virtual void CalculatePassengerOffset(float& x, float& y, float& z, float* o = NULL) const = 0;
+    virtual Position GetPositionOffsetTo(Position const& endPos) const = 0;
 
-    static void CalculatePassengerPosition(float& x, float& y, float& z, float* o, float transX, float transY, float transZ, float transO)
-    {
-        float inx = x, iny = y, inz = z;
-        if (o)
-            *o = Position::NormalizeOrientation(transO + *o);
+    virtual float GetTransportOrientation() const = 0;
 
-        x = transX + inx * std::cos(transO) - iny * std::sin(transO);
-        y = transY + iny * std::cos(transO) + inx * std::sin(transO);
-        z = transZ + inz;
-    }
+    virtual void AddPassenger(WorldObject* passenger, Position const& offset) = 0;
 
-    static void CalculatePassengerOffset(float& x, float& y, float& z, float* o, float transX, float transY, float transZ, float transO)
-    {
-        if (o)
-            *o = Position::NormalizeOrientation(*o - transO);
+    virtual TransportBase* RemovePassenger(WorldObject* passenger) = 0;
 
-        z -= transZ;
-        y -= transY;    // y = searchedY * std::cos(o) + searchedX * std::sin(o)
-        x -= transX;    // x = searchedX * std::cos(o) + searchedY * std::sin(o + pi)
-        float inx = x, iny = y;
-        y = (iny - inx * std::tan(transO)) / (std::cos(transO) + std::sin(transO) * std::tan(transO));
-        x = (inx + iny * std::tan(transO)) / (std::cos(transO) + std::sin(transO) * std::tan(transO));
-    }
+    void UpdatePassengerPosition(Map* map, WorldObject* passenger, Position const& position, bool setHomePosition);
+
+    virtual int32 GetMapIdForSpawning() const = 0;
 };
 
 #endif

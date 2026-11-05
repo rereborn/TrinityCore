@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,10 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef AsioHacksFwd_h__
-#define AsioHacksFwd_h__
-
-#include <boost/version.hpp>
+#ifndef TRINITYCORE_BOOST_ASIO_HACKS_FWD_H
+#define TRINITYCORE_BOOST_ASIO_HACKS_FWD_H
 
 /**
   Collection of forward declarations to improve compile time
@@ -35,9 +33,20 @@ namespace boost
         template <typename Time>
         struct time_traits;
 
+        template <typename Clock>
+        struct wait_traits;
+
+        template <typename Protocol, typename Clock, typename WaitTraits>
+        class basic_socket_iostream;
+
         namespace ip
         {
             class address;
+            class address_v4;
+            class address_v6;
+
+            class network_v4;
+            class network_v6;
 
             class tcp;
 
@@ -46,40 +55,6 @@ namespace boost
 
             typedef basic_endpoint<tcp> tcp_endpoint;
         }
-
-#if BOOST_VERSION >= 106600
-        template <typename Time, typename TimeTraits>
-        class basic_deadline_timer;
-
-        typedef basic_deadline_timer<posix_time::ptime, time_traits<posix_time::ptime>> deadline_timer;
-
-        namespace ip
-        {
-            template <typename InternetProtocol>
-            class basic_resolver;
-
-            typedef basic_resolver<tcp> tcp_resolver;
-    }
-#else
-        template <typename TimeType, typename TimeTraits>
-        class deadline_timer_service;
-
-        template <typename Time, typename TimeTraits, typename TimerService>
-        class basic_deadline_timer;
-
-        typedef basic_deadline_timer<posix_time::ptime, time_traits<posix_time::ptime>, deadline_timer_service<posix_time::ptime, time_traits<posix_time::ptime>>> deadline_timer;
-
-        namespace ip
-        {
-            template <typename InternetProtocol>
-            class resolver_service;
-
-            template <typename InternetProtocol, typename ResolverService>
-            class basic_resolver;
-
-            typedef basic_resolver<tcp, resolver_service<tcp>> tcp_resolver;
-        }
-#endif
     }
 }
 
@@ -87,8 +62,16 @@ namespace Trinity
 {
     namespace Asio
     {
+        class DeadlineTimer;
+        class IoContext;
+        class IoContextExecutor;
         class Strand;
+    }
+
+    namespace Net
+    {
+        class Resolver;
     }
 }
 
-#endif // AsioHacksFwd_h__
+#endif // TRINITYCORE_BOOST_ASIO_HACKS_FWD_H

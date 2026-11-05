@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,20 +23,22 @@ void WorldSession::HandleCollectionItemSetFavorite(WorldPackets::Collections::Co
 {
     switch (collectionItemSetFavorite.Type)
     {
-        case WorldPackets::Collections::TOYBOX:
+        case ItemCollectionType::Toy:
             GetCollectionMgr()->ToySetFavorite(collectionItemSetFavorite.ID, collectionItemSetFavorite.IsFavorite);
             break;
-        case WorldPackets::Collections::APPEARANCE:
+        case ItemCollectionType::Transmog:
         {
-            bool hasAppearance, isTemporary;
-            std::tie(hasAppearance, isTemporary) = GetCollectionMgr()->HasItemAppearance(collectionItemSetFavorite.ID);
+            auto [hasAppearance, isTemporary] = GetCollectionMgr()->HasItemAppearance(collectionItemSetFavorite.ID);
             if (!hasAppearance || isTemporary)
                 return;
 
             GetCollectionMgr()->SetAppearanceIsFavorite(collectionItemSetFavorite.ID, collectionItemSetFavorite.IsFavorite);
             break;
         }
-        case WorldPackets::Collections::TRANSMOG_SET:
+        case ItemCollectionType::TransmogSetFavorite:
+            break;
+        case ItemCollectionType::WarbandScene:
+            GetCollectionMgr()->SetWarbandSceneIsFavorite(collectionItemSetFavorite.ID, collectionItemSetFavorite.IsFavorite);
             break;
         default:
             break;

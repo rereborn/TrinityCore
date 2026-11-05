@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ScriptMgr.h"
+#include "oculus.h"
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "EventMap.h"
@@ -23,19 +23,26 @@
 #include "InstanceScript.h"
 #include "Map.h"
 #include "MotionMaster.h"
-#include "oculus.h"
+#include "ScriptMgr.h"
+#include "PhasingHandler.h"
 #include "TemporarySummon.h"
-#include "WorldStatePackets.h"
 
-DoorData const doorData[] =
+static constexpr DoorData doorData[] =
 {
-    { GO_DRAGON_CAGE_DOOR,  DATA_DRAKOS,    DOOR_TYPE_PASSAGE },
-    { 0,                    0,              DOOR_TYPE_ROOM }
+    { GO_DRAGON_CAGE_DOOR,  DATA_DRAKOS,    EncounterDoorBehavior::OpenWhenDone },
 };
 
-Position const VerdisaMove       = { 949.188f, 1032.91f, 359.967f, 1.093027f  };
-Position const BelgaristraszMove = { 941.453f, 1044.1f,  359.967f, 0.1984709f };
-Position const EternosMove       = { 943.202f, 1059.35f, 359.967f, 5.757278f  };
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_DRAKOS, {{ 528, 529, 2016 }} },
+    { DATA_VAROS, {{ 530, 531, 2015 }} },
+    { DATA_UROM, {{ 532, 533, 2014 }} },
+    { DATA_EREGOS, {{ 534, 535, 2013 }} }
+};
+
+static constexpr Position VerdisaMove       = { 949.188f, 1032.91f, 359.967f, 1.093027f  };
+static constexpr Position BelgaristraszMove = { 941.453f, 1044.1f,  359.967f, 0.1984709f };
+static constexpr Position EternosMove       = { 943.202f, 1059.35f, 359.967f, 5.757278f  };
 
 class instance_oculus : public InstanceMapScript
 {
@@ -44,11 +51,12 @@ class instance_oculus : public InstanceMapScript
 
         struct instance_oculus_InstanceMapScript : public InstanceScript
         {
-            instance_oculus_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_oculus_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadDoorData(doorData);
+                LoadDungeonEncounterData(encounters);
 
                 CentrifugueConstructCounter = 0;
             }
@@ -62,15 +70,24 @@ class instance_oculus : public InstanceMapScript
                         break;
                     case NPC_VAROS:
                         VarosGUID = creature->GetGUID();
-                        creature->SetInPhase(170, true, GetBossState(DATA_DRAKOS) != DONE);
+                        if (GetBossState(DATA_DRAKOS) != DONE)
+                            PhasingHandler::AddPhase(creature, 170, true);
+                        else
+                            PhasingHandler::RemovePhase(creature, 170, true);
                         break;
                     case NPC_UROM:
                         UromGUID = creature->GetGUID();
-                        creature->SetInPhase(170, true, GetBossState(DATA_VAROS) != DONE);
+                        if (GetBossState(DATA_VAROS) != DONE)
+                            PhasingHandler::AddPhase(creature, 170, true);
+                        else
+                            PhasingHandler::RemovePhase(creature, 170, true);
                         break;
                     case NPC_EREGOS:
                         EregosGUID = creature->GetGUID();
-                        creature->SetInPhase(170, true, GetBossState(DATA_UROM) != DONE);
+                        if (GetBossState(DATA_UROM) != DONE)
+                            PhasingHandler::AddPhase(creature, 170, true);
+                        else
+                            PhasingHandler::RemovePhase(creature, 170, true);
                         break;
                     case NPC_CENTRIFUGE_CONSTRUCT:
                         if (creature->IsAlive())
@@ -80,7 +97,7 @@ class instance_oculus : public InstanceMapScript
                         BelgaristraszGUID = creature->GetGUID();
                         if (GetBossState(DATA_DRAKOS) == DONE)
                         {
-                            creature->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                            creature->SetNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                             creature->Relocate(BelgaristraszMove);
                         }
                         break;
@@ -88,7 +105,7 @@ class instance_oculus : public InstanceMapScript
                         EternosGUID = creature->GetGUID();
                         if (GetBossState(DATA_DRAKOS) == DONE)
                         {
-                            creature->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                            creature->SetNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                             creature->Relocate(EternosMove);
                         }
                         break;
@@ -96,7 +113,7 @@ class instance_oculus : public InstanceMapScript
                         VerdisaGUID = creature->GetGUID();
                         if (GetBossState(DATA_DRAKOS) == DONE)
                         {
-                            creature->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
+                            creature->SetNpcFlag(UNIT_NPC_FLAG_GOSSIP);
                             creature->Relocate(VerdisaMove);
                         }
                         break;
@@ -104,8 +121,7 @@ class instance_oculus : public InstanceMapScript
                         if (GetBossState(DATA_UROM) == DONE)
                             GreaterWhelpList.push_back(creature->GetGUID());
                         else
-                            creature->SetInPhase(170, true, true);
-
+                            PhasingHandler::AddPhase(creature, 170, true);
                         break;
                     default:
                         break;
@@ -114,26 +130,13 @@ class instance_oculus : public InstanceMapScript
 
             void OnGameObjectCreate(GameObject* go) override
             {
+                InstanceScript::OnGameObjectCreate(go);
+
                 switch (go->GetEntry())
                 {
-                    case GO_DRAGON_CAGE_DOOR:
-                        AddDoor(go, true);
-                        break;
                     case GO_EREGOS_CACHE_N:
                     case GO_EREGOS_CACHE_H:
                         EregosCacheGUID = go->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            void OnGameObjectRemove(GameObject* go) override
-            {
-                switch (go->GetEntry())
-                {
-                    case GO_DRAGON_CAGE_DOOR:
-                        AddDoor(go, false);
                         break;
                     default:
                         break;
@@ -156,21 +159,7 @@ class instance_oculus : public InstanceMapScript
                 }
             }
 
-            void FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& packet) override
-            {
-                if (GetBossState(DATA_DRAKOS) == DONE && GetBossState(DATA_VAROS) != DONE)
-                {
-                    packet.Worldstates.emplace_back(uint32(WORLD_STATE_CENTRIFUGE_CONSTRUCT_SHOW), 1);
-                    packet.Worldstates.emplace_back(uint32(WORLD_STATE_CENTRIFUGE_CONSTRUCT_AMOUNT), int32(CentrifugueConstructCounter));
-                }
-                else
-                {
-                    packet.Worldstates.emplace_back(uint32(WORLD_STATE_CENTRIFUGE_CONSTRUCT_SHOW), 0);
-                    packet.Worldstates.emplace_back(uint32(WORLD_STATE_CENTRIFUGE_CONSTRUCT_AMOUNT), 0);
-                }
-            }
-
-            void ProcessEvent(WorldObject* /*unit*/, uint32 eventId) override
+            void ProcessEvent(WorldObject* /*unit*/, uint32 eventId, WorldObject* /*invoker*/) override
             {
                 if (eventId != EVENT_CALL_DRAGON)
                     return;
@@ -194,8 +183,8 @@ class instance_oculus : public InstanceMapScript
                             DoUpdateWorldState(WORLD_STATE_CENTRIFUGE_CONSTRUCT_AMOUNT, CentrifugueConstructCounter);
                             FreeDragons();
                             if (Creature* varos = instance->GetCreature(VarosGUID))
-                                varos->SetInPhase(170, true, false);
-                            events.ScheduleEvent(EVENT_VAROS_INTRO, 15000);
+                                PhasingHandler::RemovePhase(varos, 170, true);
+                            events.ScheduleEvent(EVENT_VAROS_INTRO, 15s);
                         }
                         break;
                     case DATA_VAROS:
@@ -203,7 +192,7 @@ class instance_oculus : public InstanceMapScript
                         {
                             DoUpdateWorldState(WORLD_STATE_CENTRIFUGE_CONSTRUCT_SHOW, 0);
                             if (Creature* urom = instance->GetCreature(UromGUID))
-                                urom->SetInPhase(170, true, false);
+                                PhasingHandler::RemovePhase(urom, 170, true);
                         }
                         break;
                     case DATA_UROM:
@@ -211,9 +200,9 @@ class instance_oculus : public InstanceMapScript
                         {
                             if (Creature* eregos = instance->GetCreature(EregosGUID))
                             {
-                                eregos->SetInPhase(170, true, false);
+                                PhasingHandler::RemovePhase(eregos, 170, true);
                                 GreaterWhelps();
-                                events.ScheduleEvent(EVENT_EREGOS_INTRO, 5000);
+                                events.ScheduleEvent(EVENT_EREGOS_INTRO, 5s);
                             }
                         }
                         break;
@@ -223,7 +212,7 @@ class instance_oculus : public InstanceMapScript
                             if (GameObject* cache = instance->GetGameObject(EregosCacheGUID))
                             {
                                 cache->SetRespawnTime(cache->GetRespawnDelay());
-                                cache->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                cache->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
                             }
                         }
                         break;
@@ -240,7 +229,7 @@ class instance_oculus : public InstanceMapScript
                         return KILL_NO_CONSTRUCT;
                     else if (CentrifugueConstructCounter == 1)
                         return KILL_ONE_CONSTRUCT;
-                    else if (CentrifugueConstructCounter > 1)
+                    else
                         return KILL_MORE_CONSTRUCT;
                 }
 
@@ -313,7 +302,7 @@ class instance_oculus : public InstanceMapScript
             {
                 for (ObjectGuid guid : GreaterWhelpList)
                     if (Creature* gwhelp = instance->GetCreature(guid))
-                        gwhelp->SetInPhase(170, true, false);
+                        PhasingHandler::RemovePhase(gwhelp, 170, true);
             }
 
         protected:

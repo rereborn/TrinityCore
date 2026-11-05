@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,109 +15,107 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * Timers requires to be revisited
+ */
+
 #include "ScriptMgr.h"
 #include "scholomance.h"
 #include "ScriptedCreature.h"
 
-enum Emotes
+enum VectusTexts
 {
-    EMOTE_FRENZY                 = 0
+    TALK_IDLE                    = 1,
+    TALK_IDLE2                   = 2,
+    TALK_IDLE3                   = 3
 };
 
-enum Spells
+enum VectusSpells
 {
-    SPELL_FLAMESTRIKE            = 18399,
+    // Passive
+    SPELL_FIRE_SHIELD            = 13377,
+
+    // Combat
     SPELL_BLAST_WAVE             = 16046,
-    SPELL_FIRE_SHIELD            = 19626,
-    SPELL_FRENZY                 = 8269  // 28371
+    SPELL_FLAMESTRIKE            = 18399
 };
 
-enum Events
+enum VectusEvents
 {
-    EVENT_FIRE_SHIELD = 1,
-    EVENT_BLAST_WAVE,
-    EVENT_FRENZY
+    EVENT_BLAST_WAVE             = 1,
+    EVENT_FLAMESTRIKE
 };
 
-class boss_vectus : public CreatureScript
+enum VectusPaths
 {
-public:
-    boss_vectus() : CreatureScript("boss_vectus") { }
+    PATH_VECTUS_IDLE = 3904400
+};
 
-    struct boss_vectusAI : public ScriptedAI
+// 10432 - Vectus
+struct boss_vectus : public BossAI
+{
+    boss_vectus(Creature* creature) : BossAI(creature, DATA_VECTUS) { }
+
+    void Reset() override
     {
-        boss_vectusAI(Creature* creature) : ScriptedAI(creature) { }
+        events.Reset();
 
-        void Reset() override
-        {
-            events.Reset();
-        }
+        DoCastSelf(SPELL_FIRE_SHIELD);
+    }
 
-        void EnterCombat(Unit* /*who*/) override
-        {
-            events.ScheduleEvent(EVENT_FIRE_SHIELD, 2000);
-            events.ScheduleEvent(EVENT_BLAST_WAVE, 14000);
-        }
+    void JustEngagedWith(Unit* /*who*/) override
+    {
+        events.ScheduleEvent(EVENT_BLAST_WAVE, 15s, 25s);
+        events.ScheduleEvent(EVENT_FLAMESTRIKE, 10s, 15s);
+    }
 
-        void DamageTaken(Unit* /*attacker*/, uint32& damage) override
+    void UpdateAI(uint32 diff) override
+    {
+        if (!UpdateVictim())
+            return;
+
+        events.Update(diff);
+
+        if (me->HasUnitState(UNIT_STATE_CASTING))
+            return;
+
+        while (uint32 eventId = events.ExecuteEvent())
         {
-            if (me->HealthBelowPctDamaged(25, damage))
+            switch (eventId)
             {
-                DoCast(me, SPELL_FRENZY);
-                Talk(EMOTE_FRENZY);
-                events.ScheduleEvent(EVENT_FRENZY, 24000);
+                case EVENT_BLAST_WAVE:
+                    DoCastSelf(SPELL_BLAST_WAVE);
+                    events.Repeat(20s, 30s);
+                    break;
+                case EVENT_FLAMESTRIKE:
+                    if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
+                        DoCast(target, SPELL_FLAMESTRIKE);
+                    events.Repeat(10s, 15s);
+                    break;
+                default:
+                    break;
             }
-        }
-
-        void UpdateAI(uint32 diff) override
-        {
-            if (!UpdateVictim())
-                return;
-
-            events.Update(diff);
 
             if (me->HasUnitState(UNIT_STATE_CASTING))
                 return;
-
-            while (uint32 eventId = events.ExecuteEvent())
-            {
-                switch (eventId)
-                {
-                    case EVENT_FIRE_SHIELD:
-                        DoCast(me, SPELL_FIRE_SHIELD);
-                        events.ScheduleEvent(EVENT_FIRE_SHIELD, 90000);
-                        break;
-                    case EVENT_BLAST_WAVE:
-                        DoCast(me, SPELL_BLAST_WAVE);
-                        events.ScheduleEvent(EVENT_BLAST_WAVE, 12000);
-                        break;
-                    case EVENT_FRENZY:
-                        DoCast(me, SPELL_FRENZY);
-                        Talk(EMOTE_FRENZY);
-                        events.ScheduleEvent(EVENT_FRENZY, 24000);
-                        break;
-                    default:
-                        break;
-                }
-
-                if (me->HasUnitState(UNIT_STATE_CASTING))
-                    return;
-            }
-
-            DoMeleeAttackIfReady();
         }
+    }
 
-        private:
-            EventMap events;
-    };
-
-    CreatureAI* GetAI(Creature* creature) const override
+    void WaypointReached(uint32 waypointId, uint32 pathId) override
     {
-        return GetScholomanceAI<boss_vectusAI>(creature);
+        if (pathId != PATH_VECTUS_IDLE)
+            return;
+
+        if (waypointId == 2)
+            Talk(TALK_IDLE);
+        else if (waypointId == 3)
+            Talk(TALK_IDLE2);
+        else if (waypointId == 4)
+            Talk(TALK_IDLE3);
     }
 };
 
 void AddSC_boss_vectus()
 {
-    new boss_vectus();
+    RegisterScholomanceCreatureAI(boss_vectus);
 }

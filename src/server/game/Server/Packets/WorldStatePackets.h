@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,8 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef WorldStatePackets_h__
-#define WorldStatePackets_h__
+#ifndef TRINITYCORE_WORLD_STATE_PACKETS_H
+#define TRINITYCORE_WORLD_STATE_PACKETS_H
 
 #include "Packet.h"
 
@@ -24,25 +24,25 @@ namespace WorldPackets
 {
     namespace WorldState
     {
-        class InitWorldStates final : public ServerPacket
+        class TC_GAME_API InitWorldStates final : public ServerPacket
         {
         public:
             struct WorldStateInfo
             {
-                WorldStateInfo(uint32 variableID, int32 value)
+                WorldStateInfo(int32 variableID, int32 value)
                     : VariableID(variableID), Value(value) { }
 
-                uint32 VariableID;
+                int32 VariableID;
                 int32 Value;
             };
 
-            InitWorldStates();
+            explicit InitWorldStates() : ServerPacket(SMSG_INIT_WORLD_STATES, 16) { }
 
             WorldPacket const* Write() override;
 
-            uint32 AreaID    = 0; ///< ZoneId
-            uint32 SubareaID = 0; ///< AreaId
-            uint32 MapID     = 0; ///< MapId
+            int32 AreaID    = 0; ///< ZoneId
+            int32 SubareaID = 0; ///< AreaId
+            int32 MapID     = 0; ///< MapId
 
             std::vector<WorldStateInfo> Worldstates;
         };
@@ -50,7 +50,7 @@ namespace WorldPackets
         class UpdateWorldState final : public ServerPacket
         {
         public:
-            UpdateWorldState();
+            explicit UpdateWorldState() : ServerPacket(SMSG_UPDATE_WORLD_STATE, 4 + 1 + 4) { }
 
             WorldPacket const* Write() override;
 
@@ -61,4 +61,4 @@ namespace WorldPackets
     }
 }
 
-#endif // WorldStatePackets_h__
+#endif // TRINITYCORE_WORLD_STATE_PACKETS_H

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,7 +23,7 @@
 #define SHScriptName "instance_sethekk_halls"
 #define DataHeader "SH"
 
-uint32 const EncounterCount             = 3;
+uint32 constexpr EncounterCount         = 3;
 
 enum SHDataTypes
 {
@@ -36,22 +36,18 @@ enum SHDataTypes
     DATA_TALON_KING_COFFER              = 3
 };
 
-enum SHCreatureIds
-{
-    NPC_ANZU                            = 23035,
-    NPC_BROOD_OF_ANZU                   = 23132
-};
-
 enum SHGameObjectIds
 {
-    GO_IKISS_DOOR                       = 177203,
+    GO_IKISS_DOOR                       = 183398,
     GO_TALON_KING_COFFER                = 187372
 };
 
-template<typename AI>
-inline AI* GetSethekkHallsAI(Creature* creature)
+template <class AI, class T>
+inline AI* GetSethekkHallsAI(T* obj)
 {
-    return GetInstanceAI<AI>(creature, SHScriptName);
+    return GetInstanceAI<AI>(obj, SHScriptName);
 }
+
+#define RegisterSethekkHallsCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetSethekkHallsAI)
 
 #endif // SETHEKK_HALLS_H_

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,10 +19,11 @@
 #define _MAP_UPDATER_H_INCLUDED
 
 #include "Define.h"
+#include "ProducerConsumerQueue.h"
+#include <condition_variable>
 #include <mutex>
 #include <thread>
-#include <condition_variable>
-#include "ProducerConsumerQueue.h"
+#include <vector>
 
 class MapUpdateRequest;
 class Map;
@@ -33,7 +33,7 @@ class TC_GAME_API MapUpdater
     public:
 
         MapUpdater() : _cancelationToken(false), pending_requests(0) {}
-        ~MapUpdater() { };
+        ~MapUpdater() { }
 
         friend class MapUpdateRequest;
 
@@ -45,7 +45,7 @@ class TC_GAME_API MapUpdater
 
         void deactivate();
 
-        bool activated();
+        bool activated() const;
 
     private:
 

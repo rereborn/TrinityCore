@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,10 +16,39 @@
  */
 
 #include "CollectionPackets.h"
+#include "PacketOperators.h"
 
-void WorldPackets::Collections::CollectionItemSetFavorite::Read()
+namespace WorldPackets::Collections
 {
-    Type = _worldPacket.read<CollectionType>();
-    ID = _worldPacket.read<uint32>();
-    IsFavorite = _worldPacket.ReadBit();
+void CollectionItemSetFavorite::Read()
+{
+    _worldPacket >> As<uint8>(Type);
+    _worldPacket >> ID;
+    _worldPacket >> Bits<1>(IsFavorite);
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, ItemCollectionItemData const& item)
+{
+    data << int32(item.ID);
+    data << uint8(item.Type);
+    data << int64(item.Unknown1110);
+    data << int32(item.Flags);
+
+    return data;
+}
+
+WorldPacket const* AccountItemCollectionData::Write()
+{
+    _worldPacket << uint32(Unknown1110_1);
+    _worldPacket << uint8(Type);
+    _worldPacket << Size<uint32>(Items);
+
+    for (ItemCollectionItemData const& item : Items)
+        _worldPacket << item;
+
+    _worldPacket << Bits<1>(Unknown1110_2);
+    _worldPacket.FlushBits();
+
+    return &_worldPacket;
+}
 }

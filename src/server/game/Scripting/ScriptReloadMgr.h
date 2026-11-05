@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,10 +18,14 @@
 #ifndef SCRIPT_RELOADER_H
 #define SCRIPT_RELOADER_H
 
+#include "Define.h"
 #include <memory>
 #include <string>
-#include "Define.h"
-#include <boost/filesystem/path.hpp>
+
+namespace boost::filesystem
+{
+class path;
+}
 
 /// Represents a strong reference to a dynamic library which
 /// provides C++ scripts. As long as one reference to the library exists
@@ -34,7 +38,7 @@
 class ModuleReference
 {
 public:
-    virtual ~ModuleReference() { }
+    virtual ~ModuleReference() = default;
 
     /// Returns the git revision hash of the referenced script module
     virtual char const* GetScriptModuleRevisionHash() const = 0;
@@ -52,10 +56,14 @@ public:
 class TC_GAME_API ScriptReloadMgr
 {
 protected:
-    ScriptReloadMgr() { }
+    ScriptReloadMgr() = default;
 
 public:
-    virtual ~ScriptReloadMgr() { }
+    ScriptReloadMgr(ScriptReloadMgr const&) = delete;
+    ScriptReloadMgr(ScriptReloadMgr&&) = delete;
+    ScriptReloadMgr& operator=(ScriptReloadMgr const&) = delete;
+    ScriptReloadMgr& operator=(ScriptReloadMgr&&) = delete;
+    virtual ~ScriptReloadMgr() = default;
 
     /// Initializes the ScriptReloadMgr
     virtual void Initialize() { }

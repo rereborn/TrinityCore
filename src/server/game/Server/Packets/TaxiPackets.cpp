@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+* This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
 *
 * This program is free software; you can redistribute it and/or modify it
 * under the terms of the GNU General Public License as published by the
@@ -16,52 +16,55 @@
 */
 
 #include "TaxiPackets.h"
+#include "PacketOperators.h"
 
-void WorldPackets::Taxi::TaxiNodeStatusQuery::Read()
+namespace WorldPackets::Taxi
+{
+void TaxiNodeStatusQuery::Read()
 {
     _worldPacket >> UnitGUID;
 }
 
-WorldPacket const* WorldPackets::Taxi::TaxiNodeStatus::Write()
+WorldPacket const* TaxiNodeStatus::Write()
 {
     _worldPacket << Unit;
-    _worldPacket.WriteBits(Status, 2);
+    _worldPacket << Bits<2>(Status);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Taxi::ShowTaxiNodes::Write()
+WorldPacket const* ShowTaxiNodes::Write()
 {
-    _worldPacket.WriteBit(WindowInfo.is_initialized());
+    _worldPacket << OptionalInit(WindowInfo);
     _worldPacket.FlushBits();
 
-    _worldPacket << uint32(CanLandNodes->size());
-    _worldPacket << uint32(CanUseNodes->size());
+    _worldPacket << uint32(CanLandNodes.size() / 8); // client reads this in uint64 blocks, size is ensured to be divisible by 8 in TaxiMask constructor
+    _worldPacket << uint32(CanUseNodes.size() / 8);  // client reads this in uint64 blocks, size is ensured to be divisible by 8 in TaxiMask constructor
 
-    if (WindowInfo.is_initialized())
+    if (WindowInfo)
     {
         _worldPacket << WindowInfo->UnitGUID;
         _worldPacket << uint32(WindowInfo->CurrentNode);
     }
 
-    _worldPacket.append(CanLandNodes->data(), CanLandNodes->size());
-    _worldPacket.append(CanUseNodes->data(), CanUseNodes->size());
+    _worldPacket.append(CanLandNodes.data(), CanLandNodes.size());
+    _worldPacket.append(CanUseNodes.data(), CanUseNodes.size());
 
     return &_worldPacket;
 }
 
-void WorldPackets::Taxi::EnableTaxiNode::Read()
+void EnableTaxiNode::Read()
 {
     _worldPacket >> Unit;
 }
 
-void WorldPackets::Taxi::TaxiQueryAvailableNodes::Read()
+void TaxiQueryAvailableNodes::Read()
 {
     _worldPacket >> Unit;
 }
 
-void WorldPackets::Taxi::ActivateTaxi::Read()
+void ActivateTaxi::Read()
 {
     _worldPacket >> Vendor;
     _worldPacket >> Node;
@@ -69,10 +72,18 @@ void WorldPackets::Taxi::ActivateTaxi::Read()
     _worldPacket >> FlyingMountID;
 }
 
-WorldPacket const* WorldPackets::Taxi::ActivateTaxiReply::Write()
+WorldPacket const* NewTaxiPath::Write()
 {
-    _worldPacket.WriteBits(Reply, 4);
+    _worldPacket << int32(TaxiNodesID);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* ActivateTaxiReply::Write()
+{
+    _worldPacket << Bits<4>(Reply);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
+}
 }

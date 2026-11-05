@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,7 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ScriptMgr.h"
+#include "violet_hold.h"
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "GameObject.h"
@@ -23,10 +23,10 @@
 #include "Map.h"
 #include "MotionMaster.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "TaskScheduler.h"
 #include "TemporarySummon.h"
-#include "WorldStatePackets.h"
-#include "violet_hold.h"
+#include "WaypointDefines.h"
 
 /*
  * TODO:
@@ -35,13 +35,12 @@
 
 Position const DefenseSystemLocation  = { 1888.146f, 803.382f,  58.60389f, 3.071779f }; // sniff
 
-Position const CyanigosaSpawnLocation = { 1922.109f, 804.4493f, 52.49254f, 3.176499f }; // sniff
-Position const CyanigosaJumpLocation  = { 1888.32f,  804.473f,  38.3578f,  0.0f      }; // sniff
+static constexpr Position CyanigosaSpawnLocation = { 1922.109f, 804.4493f, 52.49254f, 3.176499f }; // sniff
+static constexpr Position CyanigosaJumpLocation  = { 1888.32f,  804.473f,  38.3578f,  0.0f      }; // sniff
 
-Position const SaboteurSpawnLocation  = { 1886.251f, 803.0743f, 38.42326f, 3.211406f }; // sniff
+static constexpr Position SaboteurSpawnLocation  = { 1886.251f, 803.0743f, 38.42326f, 3.211406f }; // sniff
 
-uint32 const PortalPositionsSize = 5;
-Position const PortalPositions[PortalPositionsSize] = // sniff
+static constexpr Position PortalPositions[] = // sniff
 {
     { 1877.523f, 850.1788f, 45.36822f, 4.34587f   }, // 0
     { 1890.679f, 753.4202f, 48.771f,   1.675516f  }, // 1
@@ -50,16 +49,14 @@ Position const PortalPositions[PortalPositionsSize] = // sniff
     { 1907.288f, 831.1111f, 40.22015f, 3.560472f  }  // 4
 };
 
-uint32 const PortalElitePositionsSize = 3;
-Position const PortalElitePositions[PortalElitePositionsSize] = // sniff
+static constexpr Position PortalElitePositions[] = // sniff
 {
     { 1911.281f, 800.9722f, 39.91673f, 3.01942f  }, // 5
     { 1926.516f, 763.6616f, 52.35725f, 2.251475f }, // 6
     { 1922.464f, 847.0699f, 48.50161f, 3.961897f }  // 7
 };
 
-uint32 const PortalIntroPositionsSize = 5;
-Position const PortalIntroPositions[PortalIntroPositionsSize] = // sniff
+Position const PortalIntroPositions[] = // sniff
 {
     { 1877.51f,  850.1042f, 44.65989f, 4.782202f }, // 0 - Intro
     { 1890.637f, 753.4705f, 48.72239f, 1.710423f }, // 1 - Intro
@@ -68,75 +65,99 @@ Position const PortalIntroPositions[PortalIntroPositionsSize] = // sniff
     { 1924.096f, 804.3707f, 54.29256f, 3.228859f }  // 4 - Boss 3
 };
 
-uint32 const EncouterPortalsCount = PortalPositionsSize + PortalElitePositionsSize;
+static constexpr uint32 EncouterPortalsCount = std::ranges::size(PortalPositions) + std::ranges::size(PortalElitePositions);
 
-uint32 const MoraggPathSize = 3;
-Position const MoraggPath[MoraggPathSize] = // sniff
+WaypointPath const MoraggPath = // sniff
 {
-    { 1893.895f, 728.1261f, 47.75016f },
-    { 1892.997f, 738.4987f, 47.66684f },
-    { 1889.76f,  758.1089f, 47.66684f }
+    POINT_INTRO,
+    {
+        { 0, 1893.895f, 728.1261f, 47.75016f },
+        { 1, 1892.997f, 738.4987f, 47.66684f },
+        { 2, 1889.76f,  758.1089f, 47.66684f }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const ErekemPathSize = 3;
-Position const ErekemPath[ErekemPathSize] = // sniff
+WaypointPath const ErekemPath = // sniff
 {
-    { 1871.456f, 871.0361f, 43.41524f },
-    { 1874.948f, 859.5452f, 43.33349f },
-    { 1877.245f, 851.967f,  43.3335f  }
+    POINT_INTRO,
+    {
+        { 0, 1871.456f, 871.0361f, 43.41524f },
+        { 1, 1874.948f, 859.5452f, 43.33349f },
+        { 2, 1877.245f, 851.967f,  43.3335f, 4.921828f }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const ErekemGuardLeftPathSize = 3;
-Position const ErekemGuardLeftPath[ErekemGuardLeftPathSize] = // sniff
+WaypointPath const ErekemGuardLeftPath = // sniff
 {
-    { 1853.752f, 862.4528f, 43.41614f },
-    { 1866.931f, 854.577f,  43.3335f  },
-    { 1872.973f, 850.7875f, 43.3335f  }
+    POINT_INTRO,
+    {
+        { 0, 1853.752f, 862.4528f, 43.41614f },
+        { 1, 1866.931f, 854.577f,  43.3335f  },
+        { 2, 1872.973f, 850.7875f, 43.3335f  }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const ErekemGuardRightPathSize = 3;
-Position const ErekemGuardRightPath[ErekemGuardRightPathSize] = // sniff
+WaypointPath const ErekemGuardRightPath = // sniff
 {
-    { 1892.418f, 872.2831f, 43.41563f },
-    { 1885.639f, 859.0245f, 43.3335f  },
-    { 1882.432f, 852.2423f, 43.3335f  }
+    POINT_INTRO,
+    {
+        { 0, 1892.418f, 872.2831f, 43.41563f },
+        { 1, 1885.639f, 859.0245f, 43.3335f  },
+        { 2, 1882.432f, 852.2423f, 43.3335f  }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const IchoronPathSize = 5;
-Position const IchoronPath[IchoronPathSize] = // sniff
+WaypointPath const IchoronPath = // sniff
 {
-    { 1942.041f, 749.5228f, 30.95229f },
-    { 1930.571f, 762.9065f, 31.98814f },
-    { 1923.657f, 770.6718f, 34.07256f },
-    { 1910.631f, 784.4096f, 37.09015f },
-    { 1906.595f, 788.3828f, 37.99429f }
+    POINT_INTRO,
+    {
+        { 0, 1942.041f, 749.5228f, 30.95229f },
+        { 1, 1930.571f, 762.9065f, 31.98814f },
+        { 2, 1923.657f, 770.6718f, 34.07256f },
+        { 3, 1910.631f, 784.4096f, 37.09015f },
+        { 4, 1906.595f, 788.3828f, 37.99429f }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const LavanthorPathSize = 3;
-Position const LavanthorPath[LavanthorPathSize] = // sniff
+WaypointPath const LavanthorPath = // sniff
 {
-    { 1844.557f, 748.7083f, 38.74205f },
-    { 1854.618f, 761.5295f, 38.65631f },
-    { 1862.17f,  773.2255f, 38.74879f }
+    POINT_INTRO,
+    {
+        { 0, 1844.557f, 748.7083f, 38.74205f },
+        { 1, 1854.618f, 761.5295f, 38.65631f },
+        { 2, 1862.17f,  773.2255f, 38.74879f }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const XevozzPathSize = 3;
-Position const XevozzPath[XevozzPathSize] = // sniff
+WaypointPath const XevozzPath = // sniff
 {
-    { 1908.417f, 845.8502f, 38.71947f },
-    { 1905.557f, 841.3157f, 38.65529f },
-    { 1899.453f, 832.533f,  38.70752f }
+    POINT_INTRO,
+    {
+        { 0, 1908.417f, 845.8502f, 38.71947f },
+        { 1, 1905.557f, 841.3157f, 38.65529f },
+        { 2, 1899.453f, 832.533f,  38.70752f }
+    },
+    WaypointMoveType::Walk
 };
 
-uint32 const ZuramatPathSize = 3;
-Position const ZuramatPath[ZuramatPathSize] = // sniff
+WaypointPath const ZuramatPath = // sniff
 {
-    { 1934.151f, 860.9463f, 47.29499f },
-    { 1927.085f, 852.1342f, 47.19214f },
-    { 1923.226f, 847.3297f, 47.15541f }
+    POINT_INTRO,
+    {
+        { 0, 1934.151f, 860.9463f, 47.29499f },
+        { 1, 1927.085f, 852.1342f, 47.19214f },
+        { 2, 1923.226f, 847.3297f, 47.15541f }
+    },
+    WaypointMoveType::Walk
 };
 
-enum Yells
+enum VioletHoldTexts
 {
     SAY_CYANIGOSA_SPAWN                         = 3,
     SAY_XEVOZZ_SPAWN                            = 3,
@@ -147,7 +168,7 @@ enum Yells
     SOUND_MORAGG_SPAWN                          = 10112
 };
 
-enum Spells
+enum VioletHoldSpells
 {
     SPELL_CYANIGOSA_TRANSFORM                   = 58668,
     SPELL_CYANIGOSA_ARCANE_POWER_STATE          = 49411,
@@ -156,7 +177,7 @@ enum Spells
     SPELL_ZURAMAT_COSMETIC_CHANNEL_OMNI         = 57552
 };
 
-ObjectData const creatureData[] =
+static constexpr ObjectData creatureData[] =
 {
     { NPC_XEVOZZ,           DATA_XEVOZZ           },
     { NPC_LAVANTHOR,        DATA_LAVANTHOR        },
@@ -167,10 +188,9 @@ ObjectData const creatureData[] =
     { NPC_CYANIGOSA,        DATA_CYANIGOSA        },
     { NPC_SINCLARI,         DATA_SINCLARI         },
     { NPC_SINCLARI_TRIGGER, DATA_SINCLARI_TRIGGER },
-    { 0,                    0                     } // END
 };
 
-ObjectData const gameObjectData[] =
+static constexpr ObjectData gameObjectData[] =
 {
     { GO_EREKEM_GUARD_1_DOOR, DATA_EREKEM_LEFT_GUARD_CELL  },
     { GO_EREKEM_GUARD_2_DOOR, DATA_EREKEM_RIGHT_GUARD_CELL },
@@ -181,13 +201,18 @@ ObjectData const gameObjectData[] =
     { GO_ICHORON_DOOR,        DATA_ICHORON_CELL            },
     { GO_XEVOZZ_DOOR,         DATA_XEVOZZ_CELL             },
     { GO_MAIN_DOOR,           DATA_MAIN_DOOR               },
-    { 0,                      0                            } // END
 };
 
-MinionData const minionData[] =
+static constexpr MinionData minionData[] =
 {
     { NPC_EREKEM_GUARD, DATA_EREKEM },
-    { 0,                0           } // END
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_1ST_BOSS, {{ 2019 }} },
+    { DATA_2ND_BOSS, {{ 2018 }} },
+    { DATA_CYANIGOSA, {{ 2020 }} }
 };
 
 class instance_violet_hold : public InstanceMapScript
@@ -197,15 +222,15 @@ class instance_violet_hold : public InstanceMapScript
 
         struct instance_violet_hold_InstanceMapScript : public InstanceScript
         {
-            instance_violet_hold_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_violet_hold_InstanceMapScript(InstanceMap* map) : InstanceScript(map),
+                FirstBossId(*this, "FirstBossId", 0),
+                SecondBossId(*this, "SecondBossId", 0)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadObjectData(creatureData, gameObjectData);
                 LoadMinionData(minionData);
-
-                FirstBossId         = 0;
-                SecondBossId        = 0;
+                LoadDungeonEncounterData(encounters);
 
                 DoorIntegrity       = 100;
                 WaveCount           = 0;
@@ -292,13 +317,6 @@ class instance_violet_hold : public InstanceMapScript
                 }
             }
 
-            void FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& data) override
-            {
-                data.Worldstates.emplace_back(uint32(WORLD_STATE_VH_SHOW), uint32(EventState == IN_PROGRESS ? 1 : 0));
-                data.Worldstates.emplace_back(uint32(WORLD_STATE_VH_PRISON_STATE), uint32(DoorIntegrity));
-                data.Worldstates.emplace_back(uint32(WORLD_STATE_VH_WAVE_COUNT), uint32(WaveCount));
-            }
-
             bool CheckRequiredBosses(uint32 bossId, Player const* player = nullptr) const override
             {
                 if (_SkipCheckRequiredBosses(player))
@@ -334,14 +352,6 @@ class instance_violet_hold : public InstanceMapScript
 
                 switch (type)
                 {
-                    case DATA_1ST_BOSS:
-                        if (state == DONE)
-                            UpdateEncounterStateForKilledCreature(NPC_EREKEM, nullptr);
-                        break;
-                    case DATA_2ND_BOSS:
-                        if (state == DONE)
-                            UpdateEncounterStateForKilledCreature(NPC_MORAGG, nullptr);
-                        break;
                     case DATA_CYANIGOSA:
                         if (state == DONE)
                             SetData(DATA_MAIN_EVENT_STATE, DONE);
@@ -376,7 +386,7 @@ class instance_violet_hold : public InstanceMapScript
                         WaveCount = data;
                         if (WaveCount)
                         {
-                            Scheduler.Schedule(Seconds(IsBossWave(WaveCount - 1) ? 45 : 5), [this](TaskContext /*task*/)
+                            Scheduler.Schedule(Seconds(IsBossWave(WaveCount - 1) ? 45 : 5), [this](TaskContext const& /*task*/)
                             {
                                 AddWave();
                             });
@@ -407,18 +417,27 @@ class instance_violet_hold : public InstanceMapScript
                             DoUpdateWorldState(WORLD_STATE_VH_SHOW, 1);
 
                             WaveCount = 1;
-                            Scheduler.Async(std::bind(&instance_violet_hold_InstanceMapScript::AddWave, this));
+                            Scheduler.Async([this]
+                            {
+                                AddWave();
+                            });
 
                             for (uint8 i = 0; i < ActivationCrystalCount; ++i)
                                 if (GameObject* crystal = instance->GetGameObject(ActivationCrystalGUIDs[i]))
-                                    crystal->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                    crystal->RemoveFlag(GO_FLAG_NOT_SELECTABLE);
+
+                            Scheduler.Schedule(3s, [this](TaskContext& task)
+                            {
+                                CheckEventState();
+                                task.Repeat(3s);
+                            });
                         }
                         else if (data == NOT_STARTED)
                         {
                             if (GameObject* mainDoor = GetGameObject(DATA_MAIN_DOOR))
                             {
                                 mainDoor->SetGoState(GO_STATE_ACTIVE);
-                                mainDoor->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
+                                mainDoor->RemoveFlag(GO_FLAG_LOCKED);
                             }
 
                             DoUpdateWorldState(WORLD_STATE_VH_SHOW, 0);
@@ -427,21 +446,21 @@ class instance_violet_hold : public InstanceMapScript
 
                             for (uint8 i = 0; i < ActivationCrystalCount; ++i)
                                 if (GameObject* crystal = instance->GetGameObject(ActivationCrystalGUIDs[i]))
-                                    crystal->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                    crystal->SetFlag(GO_FLAG_NOT_SELECTABLE);
                         }
                         else if (data == DONE)
                         {
                             if (GameObject* mainDoor = GetGameObject(DATA_MAIN_DOOR))
                             {
                                 mainDoor->SetGoState(GO_STATE_ACTIVE);
-                                mainDoor->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
+                                mainDoor->RemoveFlag(GO_FLAG_LOCKED);
                             }
 
                             DoUpdateWorldState(WORLD_STATE_VH_SHOW, 0);
 
                             for (uint8 i = 0; i < ActivationCrystalCount; ++i)
                                 if (GameObject* crystal = instance->GetGameObject(ActivationCrystalGUIDs[i]))
-                                    crystal->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
+                                    crystal->SetFlag(GO_FLAG_NOT_SELECTABLE);
 
                             if (Creature* sinclari = GetCreature(DATA_SINCLARI))
                                 sinclari->AI()->DoAction(ACTION_SINCLARI_OUTRO);
@@ -495,14 +514,14 @@ class instance_violet_hold : public InstanceMapScript
                 LastPortalLocation = (LastPortalLocation + urand(1, EncouterPortalsCount - 1)) % (EncouterPortalsCount);
                 if (Creature* sinclari = GetCreature(DATA_SINCLARI))
                 {
-                    if (LastPortalLocation < PortalPositionsSize)
+                    if (LastPortalLocation < std::ranges::size(PortalPositions))
                     {
                         if (Creature* portal = sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL, PortalPositions[LastPortalLocation], TEMPSUMMON_CORPSE_DESPAWN))
                             portal->AI()->SetData(DATA_PORTAL_LOCATION, LastPortalLocation);
                     }
                     else
                     {
-                        if (Creature* portal = sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_ELITE, PortalElitePositions[LastPortalLocation - PortalPositionsSize], TEMPSUMMON_CORPSE_DESPAWN))
+                        if (Creature* portal = sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_ELITE, PortalElitePositions[LastPortalLocation - std::ranges::size(PortalPositions)], TEMPSUMMON_CORPSE_DESPAWN))
                             portal->AI()->SetData(DATA_PORTAL_LOCATION, LastPortalLocation);
                     }
                 }
@@ -542,7 +561,7 @@ class instance_violet_hold : public InstanceMapScript
                 switch (bossId)
                 {
                     case DATA_MORAGG:
-                        Scheduler.Schedule(Seconds(2), [this](TaskContext task)
+                        Scheduler.Schedule(2s, [this](TaskContext& task)
                         {
                             if (Creature* moragg = GetCreature(DATA_MORAGG))
                             {
@@ -550,55 +569,55 @@ class instance_violet_hold : public InstanceMapScript
                                 moragg->CastSpell(moragg, SPELL_MORAGG_EMOTE_ROAR);
                             }
 
-                            task.Schedule(Seconds(3), [this](TaskContext task)
+                            task.Schedule(3s, [this](TaskContext& task)
                             {
                                 if (Creature* moragg = GetCreature(DATA_MORAGG))
-                                    moragg->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, MoraggPath, MoraggPathSize, true);
+                                    moragg->GetMotionMaster()->MovePath(MoraggPath, false);
 
-                                task.Schedule(Seconds(8), [this](TaskContext /*task*/)
+                                task.Schedule(8s, [this](TaskContext const& /*task*/)
                                 {
                                     if (Creature* moragg = GetCreature(DATA_MORAGG))
                                     {
-                                        moragg->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
-                                        moragg->AI()->DoZoneInCombat(moragg, 200.0f);
+                                        moragg->SetImmuneToAll(false);
+                                        moragg->AI()->DoZoneInCombat(moragg);
                                     }
                                 });
                             });
                         });
                         break;
                     case DATA_EREKEM:
-                        Scheduler.Schedule(Seconds(3), [this](TaskContext task)
+                        Scheduler.Schedule(3s, [this](TaskContext& task)
                         {
                             if (Creature* erekem = GetCreature(DATA_EREKEM))
                                 erekem->AI()->Talk(SAY_EREKEM_SPAWN);
 
-                            task.Schedule(Seconds(5), [this](TaskContext task)
+                            task.Schedule(5s, [this](TaskContext& task)
                             {
                                 if (Creature* erekem = GetCreature(DATA_EREKEM))
-                                    erekem->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, ErekemPath, ErekemPathSize, true);
+                                    erekem->GetMotionMaster()->MovePath(ErekemPath, false);
 
                                 if (Creature* guard = instance->GetCreature(GetGuidData(DATA_EREKEM_GUARD_1)))
-                                    guard->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, ErekemGuardLeftPath, ErekemGuardLeftPathSize, true);
+                                    guard->GetMotionMaster()->MovePath(ErekemGuardLeftPath, false);
                                 if (Creature* guard = instance->GetCreature(GetGuidData(DATA_EREKEM_GUARD_2)))
-                                    guard->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, ErekemGuardRightPath, ErekemGuardRightPathSize, true);
+                                    guard->GetMotionMaster()->MovePath(ErekemGuardRightPath, false);
 
-                                task.Schedule(Seconds(6), [this](TaskContext task)
+                                task.Schedule(6s, [this](TaskContext& task)
                                 {
                                     if (Creature* erekem = GetCreature(DATA_EREKEM))
                                         erekem->HandleEmoteCommand(EMOTE_ONESHOT_ROAR);
 
-                                    task.Schedule(Seconds(1), [this](TaskContext /*task*/)
+                                    task.Schedule(1s, [this](TaskContext const& /*task*/)
                                     {
                                         for (uint32 i = DATA_EREKEM_GUARD_1; i <= DATA_EREKEM_GUARD_2; ++i)
                                         {
                                             if (Creature* guard = instance->GetCreature(GetGuidData(i)))
-                                                guard->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                                                guard->SetImmuneToAll(false);
                                         }
 
                                         if (Creature* erekem = GetCreature(DATA_EREKEM))
                                         {
-                                            erekem->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
-                                            erekem->AI()->DoZoneInCombat(erekem, 200.0f);
+                                            erekem->SetImmuneToAll(false);
+                                            erekem->AI()->DoZoneInCombat(erekem);
                                         }
                                     });
                                 });
@@ -606,71 +625,71 @@ class instance_violet_hold : public InstanceMapScript
                         });
                         break;
                     case DATA_ICHORON:
-                        Scheduler.Schedule(Seconds(2), [this](TaskContext task)
+                        Scheduler.Schedule(2s, [this](TaskContext& task)
                         {
                             if (Creature* ichoron = GetCreature(DATA_ICHORON))
                                 ichoron->AI()->Talk(SAY_ICHORON_SPAWN);
 
-                            task.Schedule(Seconds(3), [this](TaskContext task)
+                            task.Schedule(3s, [this](TaskContext& task)
                             {
                                 if (Creature* ichoron = GetCreature(DATA_ICHORON))
-                                    ichoron->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, IchoronPath, IchoronPathSize, true);
+                                    ichoron->GetMotionMaster()->MovePath(IchoronPath, false);
 
-                                task.Schedule(Seconds(14), [this](TaskContext /*task*/)
+                                task.Schedule(14s, [this](TaskContext const&& /*task*/)
                                 {
                                     if (Creature* ichoron = GetCreature(DATA_ICHORON))
                                     {
-                                        ichoron->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
-                                        ichoron->AI()->DoZoneInCombat(ichoron, 200.0f);
+                                        ichoron->SetImmuneToAll(false);
+                                        ichoron->AI()->DoZoneInCombat(ichoron);
                                     }
                                 });
                             });
                         });
                         break;
                     case DATA_LAVANTHOR:
-                        Scheduler.Schedule(Seconds(1), [this](TaskContext task)
+                        Scheduler.Schedule(1s, [this](TaskContext& task)
                         {
                             if (Creature* lavanthor = GetCreature(DATA_LAVANTHOR))
                                 lavanthor->CastSpell(lavanthor, SPELL_LAVANTHOR_SPECIAL_UNARMED);
 
-                            task.Schedule(Seconds(3), [this](TaskContext task)
+                            task.Schedule(3s, [this](TaskContext& task)
                             {
                                 if (Creature* lavanthor = GetCreature(DATA_LAVANTHOR))
-                                    lavanthor->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, LavanthorPath, LavanthorPathSize, true);
+                                    lavanthor->GetMotionMaster()->MovePath(LavanthorPath, false);
 
-                                task.Schedule(Seconds(8), [this](TaskContext /*task*/)
+                                task.Schedule(8s, [this](TaskContext const& /*task*/)
                                 {
                                     if (Creature* lavanthor = GetCreature(DATA_LAVANTHOR))
                                     {
-                                        lavanthor->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
-                                        lavanthor->AI()->DoZoneInCombat(lavanthor, 200.0f);
+                                        lavanthor->SetImmuneToAll(false);
+                                        lavanthor->AI()->DoZoneInCombat(lavanthor);
                                     }
                                 });
                             });
                         });
                         break;
                     case DATA_XEVOZZ:
-                        Scheduler.Schedule(Seconds(2), [this](TaskContext task)
+                        Scheduler.Schedule(2s, [this](TaskContext& task)
                         {
                             if (Creature* xevozz = GetCreature(DATA_XEVOZZ))
                                 xevozz->AI()->Talk(SAY_XEVOZZ_SPAWN);
 
-                            task.Schedule(Seconds(3), [this](TaskContext task)
+                            task.Schedule(3s, [this](TaskContext& task)
                             {
                                 if (Creature* xevozz = GetCreature(DATA_XEVOZZ))
                                     xevozz->HandleEmoteCommand(EMOTE_ONESHOT_TALK_NO_SHEATHE);
 
-                                task.Schedule(Seconds(4), [this](TaskContext task)
+                                task.Schedule(4s, [this](TaskContext& task)
                                 {
                                     if (Creature* xevozz = GetCreature(DATA_XEVOZZ))
-                                        xevozz->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, XevozzPath, XevozzPathSize, true);
+                                        xevozz->GetMotionMaster()->MovePath(XevozzPath, false);
 
-                                    task.Schedule(Seconds(4), [this](TaskContext /*task*/)
+                                    task.Schedule(4s, [this](TaskContext const& /*task*/)
                                     {
                                         if (Creature* xevozz = GetCreature(DATA_XEVOZZ))
                                         {
-                                            xevozz->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
-                                            xevozz->AI()->DoZoneInCombat(xevozz, 200.0f);
+                                            xevozz->SetImmuneToAll(false);
+                                            xevozz->AI()->DoZoneInCombat(xevozz);
                                         }
                                     });
                                 });
@@ -678,7 +697,7 @@ class instance_violet_hold : public InstanceMapScript
                         });
                         break;
                     case DATA_ZURAMAT:
-                        Scheduler.Schedule(Seconds(2), [this](TaskContext task)
+                        Scheduler.Schedule(2s, [this](TaskContext& task)
                         {
                             if (Creature* zuramat = GetCreature(DATA_ZURAMAT))
                             {
@@ -686,17 +705,17 @@ class instance_violet_hold : public InstanceMapScript
                                 zuramat->AI()->Talk(SAY_ZURAMAT_SPAWN);
                             }
 
-                            task.Schedule(Seconds(6), [this](TaskContext task)
+                            task.Schedule(6s, [this](TaskContext& task)
                             {
                                 if (Creature* zuramat = GetCreature(DATA_ZURAMAT))
-                                    zuramat->GetMotionMaster()->MoveSmoothPath(POINT_INTRO, ZuramatPath, ZuramatPathSize, true);
+                                    zuramat->GetMotionMaster()->MovePath(ZuramatPath, false);
 
-                                task.Schedule(Seconds(4), [this](TaskContext /*task*/)
+                                task.Schedule(4s, [this](TaskContext const& /*task*/)
                                 {
                                     if (Creature* zuramat = GetCreature(DATA_ZURAMAT))
                                     {
-                                        zuramat->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
-                                        zuramat->AI()->DoZoneInCombat(zuramat, 200.0f);
+                                        zuramat->SetImmuneToAll(false);
+                                        zuramat->AI()->DoZoneInCombat(zuramat);
                                     }
                                 });
                             });
@@ -735,10 +754,10 @@ class instance_violet_hold : public InstanceMapScript
                                     UpdateKilledBoss(guard);
 
                                 guard->GetMotionMaster()->MoveTargetedHome();
-                                guard->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                                guard->SetImmuneToAll(true);
                             }
                         }
-                        // no break
+                        [[fallthrough]];
                     default:
                         if (boss->isDead())
                         {
@@ -748,7 +767,7 @@ class instance_violet_hold : public InstanceMapScript
                         }
 
                         boss->GetMotionMaster()->MoveTargetedHome();
-                        boss->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                        boss->SetImmuneToAll(true);
                         break;
                 }
             }
@@ -764,7 +783,7 @@ class instance_violet_hold : public InstanceMapScript
                             FirstBossId = urand(DATA_MORAGG, DATA_ZURAMAT);
                         if (Creature* sinclari = GetCreature(DATA_SINCLARI))
                         {
-                            sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_INTRO, PortalIntroPositions[3], TEMPSUMMON_TIMED_DESPAWN, 3000);
+                            sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_INTRO, PortalIntroPositions[3], TEMPSUMMON_TIMED_DESPAWN, 3s);
                             sinclari->SummonCreature(NPC_SABOTEOUR, SaboteurSpawnLocation, TEMPSUMMON_DEAD_DESPAWN);
                         }
                         break;
@@ -776,14 +795,14 @@ class instance_violet_hold : public InstanceMapScript
                             } while (SecondBossId == FirstBossId);
                         if (Creature* sinclari = GetCreature(DATA_SINCLARI))
                         {
-                            sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_INTRO, PortalIntroPositions[3], TEMPSUMMON_TIMED_DESPAWN, 3000);
+                            sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_INTRO, PortalIntroPositions[3], TEMPSUMMON_TIMED_DESPAWN, 3s);
                             sinclari->SummonCreature(NPC_SABOTEOUR, SaboteurSpawnLocation, TEMPSUMMON_DEAD_DESPAWN);
                         }
                         break;
                     case 18:
                         if (Creature* sinclari = GetCreature(DATA_SINCLARI))
                         {
-                            sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_INTRO, PortalIntroPositions[4], TEMPSUMMON_TIMED_DESPAWN, 6000);
+                            sinclari->SummonCreature(NPC_TELEPORTATION_PORTAL_INTRO, PortalIntroPositions[4], TEMPSUMMON_TIMED_DESPAWN, 6s);
                             if (Creature* cyanigosa = sinclari->SummonCreature(NPC_CYANIGOSA, CyanigosaSpawnLocation, TEMPSUMMON_DEAD_DESPAWN))
                                 cyanigosa->CastSpell(cyanigosa, SPELL_CYANIGOSA_ARCANE_POWER_STATE, true);
                             ScheduleCyanigosaIntro();
@@ -793,17 +812,6 @@ class instance_violet_hold : public InstanceMapScript
                         SpawnPortal();
                         break;
                 }
-            }
-
-            void WriteSaveDataMore(std::ostringstream& data) override
-            {
-                data << FirstBossId << ' ' << SecondBossId;
-            }
-
-            void ReadSaveDataMore(std::istringstream& data) override
-            {
-                data >> FirstBossId;
-                data >> SecondBossId;
             }
 
             bool CheckWipe() const
@@ -854,9 +862,29 @@ class instance_violet_hold : public InstanceMapScript
 
             void Update(uint32 diff) override
             {
+                // if we don't have any player in the instance
                 if (!instance->HavePlayers())
+                {
+                    if (EventState == IN_PROGRESS) // if event is in progress, mark as fail
+                    {
+                        EventState = FAIL;
+                        CheckEventState();
+                    }
                     return;
+                }
 
+                Scheduler.Update(diff);
+
+                if (EventState == IN_PROGRESS)
+                {
+                    // if door is destroyed, event is failed
+                    if (!GetData(DATA_DOOR_INTEGRITY))
+                        EventState = FAIL;
+                }
+            }
+
+            void CheckEventState()
+            {
                 // if main event is in progress and players have wiped then reset instance
                 if ((EventState == IN_PROGRESS && CheckWipe()) || EventState == FAIL)
                 {
@@ -874,43 +902,34 @@ class instance_violet_hold : public InstanceMapScript
                     if (Creature* sinclari = GetCreature(DATA_SINCLARI))
                         sinclari->AI()->EnterEvadeMode();
                 }
-
-                Scheduler.Update(diff);
-
-                if (EventState == IN_PROGRESS)
-                {
-                    // if door is destroyed, event is failed
-                    if (!GetData(DATA_DOOR_INTEGRITY))
-                        EventState = FAIL;
-                }
             }
 
             void ScheduleCyanigosaIntro()
             {
-                Scheduler.Schedule(Seconds(2), [this](TaskContext task)
+                Scheduler.Schedule(2s, [this](TaskContext& task)
                 {
                     if (Creature* cyanigosa = GetCreature(DATA_CYANIGOSA))
                         cyanigosa->AI()->Talk(SAY_CYANIGOSA_SPAWN);
 
-                    task.Schedule(Seconds(6), [this](TaskContext task)
+                    task.Schedule(6s, [this](TaskContext& task)
                     {
                         if (Creature* cyanigosa = GetCreature(DATA_CYANIGOSA))
-                            cyanigosa->GetMotionMaster()->MoveJump(CyanigosaJumpLocation, 10.0f, 27.44744f);
+                            cyanigosa->GetMotionMaster()->MoveJump(EVENT_JUMP, CyanigosaJumpLocation, {}, 8.0f);
 
-                        task.Schedule(Seconds(7), [this](TaskContext /*task*/)
+                        task.Schedule(7s, [this](TaskContext const& /*task*/)
                         {
                             if (Creature* cyanigosa = GetCreature(DATA_CYANIGOSA))
                             {
                                 cyanigosa->RemoveAurasDueToSpell(SPELL_CYANIGOSA_ARCANE_POWER_STATE);
                                 cyanigosa->CastSpell(cyanigosa, SPELL_CYANIGOSA_TRANSFORM, true);
-                                cyanigosa->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
+                                cyanigosa->SetImmuneToAll(false);
                             }
                         });
                     });
                 });
             }
 
-            void ProcessEvent(WorldObject* /*go*/, uint32 eventId) override
+            void ProcessEvent(WorldObject* /*go*/, uint32 eventId, WorldObject* /*invoker*/) override
             {
                 if (eventId == EVENT_ACTIVATE_CRYSTAL)
                 {
@@ -933,8 +952,8 @@ class instance_violet_hold : public InstanceMapScript
             static uint8 const ActivationCrystalCount = 5;
             ObjectGuid ActivationCrystalGUIDs[ActivationCrystalCount];
 
-            uint32 FirstBossId;
-            uint32 SecondBossId;
+            PersistentInstanceScriptValue<uint32> FirstBossId;
+            PersistentInstanceScriptValue<uint32> SecondBossId;
 
             uint8 DoorIntegrity;
             uint8 WaveCount;

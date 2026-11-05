@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -31,7 +31,7 @@ enum AZDataTypes
     DATA_ZEREKETH                               = 0,
     DATA_DALLIAH                                = 1,
     DATA_SOCCOTHRATES                           = 2,
-    DATA_HARBINGER_SKYRISS                      = 3,
+    DATA_HARBINGER_SKYRISS                      = 3, // used by SmartAI
 
     // Additional Data
     DATA_CONVERSATION                           = 4,
@@ -40,16 +40,21 @@ enum AZDataTypes
     DATA_WARDEN_3                               = 7, // used by SmartAI
     DATA_WARDEN_4                               = 8, // used by SmartAI
     DATA_WARDEN_5                               = 9, // used by SmartAI
-    DATA_MELLICHAR                              = 10,
-    DATA_WARDENS_SHIELD                         = 11
+    DATA_MELLICHAR,
+    DATA_WARDENS_SHIELD,
+    DATA_STASIS_POD_ALPHA,
+    DATA_STASIS_POD_BETA,
+    DATA_STASIS_POD_DELTA,
+    DATA_STASIS_POD_GAMMA,
+    DATA_STASIS_POD_OMEGA
 };
 
 enum AZCreatureIds
 {
     NPC_DALLIAH                                 = 20885,
     NPC_SOCCOTHRATES                            = 20886,
-    NPC_MELLICHAR                               = 20904, // skyriss will kill this unit
-    NPC_ALPHA_POD_TARGET                        = 21436
+    NPC_MELLICHAR                               = 20904,
+    NPC_MILLHOUSE                               = 20977
 };
 
 enum AZGameObjectIds
@@ -64,10 +69,22 @@ enum AZGameObjectIds
     GO_WARDENS_SHIELD                           = 184802  // shield 'protecting' mellichar
 };
 
-template<typename AI>
-inline AI* GetArcatrazAI(Creature* creature)
+enum AZSpellIds
 {
-    return GetInstanceAI<AI>(creature, ArcatrazScriptName);
+    SPELL_QID_10886                             = 39564
+};
+
+enum AZMisc
+{
+    ACTION_RESET_PRISON                         = 1
+};
+
+template <class AI, class T>
+inline AI* GetArcatrazAI(T* obj)
+{
+    return GetInstanceAI<AI>(obj, ArcatrazScriptName);
 }
+
+#define RegisterArcatrazCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetArcatrazAI)
 
 #endif // ARCATRAZ_H

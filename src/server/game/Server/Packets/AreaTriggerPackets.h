@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,44 +15,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef AreaTriggerPackets_h__
-#define AreaTriggerPackets_h__
+#ifndef TRINITYCORE_AREA_TRIGGER_PACKETS_H
+#define TRINITYCORE_AREA_TRIGGER_PACKETS_H
 
 #include "Packet.h"
+#include "CombatLogPacketsCommon.h"
 #include "ObjectGuid.h"
-#include "Optional.h"
-#include "Position.h"
 
 namespace WorldPackets
 {
     namespace AreaTrigger
     {
-        struct AreaTriggerSplineInfo
-        {
-            uint32 TimeToTarget = 0;
-            uint32 ElapsedTimeForMovement = 0;
-            std::vector<TaggedPosition<Position::XYZ>> Points;
-        };
-
-        struct AreaTriggerUnkTypeInfo
-        {
-            Optional<ObjectGuid> AreaTriggerUnkGUID;
-            Optional<TaggedPosition<Position::XYZ>> Center;
-            bool UnkBit1 = false;
-            bool UnkBit2 = false;
-            uint32 UnkUInt1 = 0;
-            int32 UnkInt1 = 0;
-            uint32 UnkUInt2 = 0;
-            float Radius = 0.0;
-            float BlendFromRadius = 0.0f;
-            float InitialAngel = 0.0f;
-            float ZOffset = 0.0f;
-        };
-
         class AreaTrigger final : public ClientPacket
         {
         public:
-            AreaTrigger(WorldPacket&& packet) : ClientPacket(CMSG_AREA_TRIGGER, std::move(packet)) { }
+            explicit AreaTrigger(WorldPacket&& packet) : ClientPacket(CMSG_AREA_TRIGGER, std::move(packet)) { }
 
             void Read() override;
 
@@ -64,7 +41,7 @@ namespace WorldPackets
         class AreaTriggerDenied final : public ServerPacket
         {
         public:
-            AreaTriggerDenied() : ServerPacket(SMSG_AREA_TRIGGER_DENIED, 5) { }
+            explicit AreaTriggerDenied() : ServerPacket(SMSG_AREA_TRIGGER_DENIED, 5) { }
 
             int32 AreaTriggerID = 0;
             bool Entered = false;
@@ -75,34 +52,34 @@ namespace WorldPackets
         class AreaTriggerNoCorpse final : public ServerPacket
         {
         public:
-            AreaTriggerNoCorpse() : ServerPacket(SMSG_AREA_TRIGGER_NO_CORPSE, 0) { }
+            explicit AreaTriggerNoCorpse() : ServerPacket(SMSG_AREA_TRIGGER_NO_CORPSE, 0) { }
 
             WorldPacket const* Write() override { return &_worldPacket; }
         };
 
-        class AreaTriggerRePath final : public ServerPacket
+        class AreaTriggerPlaySpellVisual final : public ServerPacket
         {
         public:
-            AreaTriggerRePath() : ServerPacket(SMSG_AREA_TRIGGER_RE_PATH, 50) { }
+            explicit AreaTriggerPlaySpellVisual() : ServerPacket(SMSG_AREA_TRIGGER_PLAY_SPELL_VISUAL, 16 + 4) { }
 
             WorldPacket const* Write() override;
 
-            AreaTriggerSplineInfo AreaTriggerSpline;
-            ObjectGuid TriggerGUID;
+            ObjectGuid AreaTriggerGUID;
+            uint32 SpellVisualID = 0;
         };
 
-        class AreaTriggerReShape final : public ServerPacket
+        class UpdateAreaTriggerVisual final : public ClientPacket
         {
         public:
-            AreaTriggerReShape() : ServerPacket(SMSG_AREA_TRIGGER_RE_SHAPE, 17) { }
+            explicit UpdateAreaTriggerVisual(WorldPacket&& packet) : ClientPacket(CMSG_UPDATE_AREA_TRIGGER_VISUAL, std::move(packet)) { }
 
-            WorldPacket const* Write() override;
+            void Read() override;
 
-            Optional<AreaTriggerSplineInfo> AreaTriggerSpline;
-            Optional<AreaTriggerUnkTypeInfo> AreaTriggerUnkType;
-            ObjectGuid TriggerGUID;
+            int32 SpellID = 0;
+            Spells::SpellCastVisual Visual;
+            ObjectGuid TargetGUID;
         };
     }
 }
 
-#endif // AreaTriggerPackets_h__
+#endif // TRINITYCORE_AREA_TRIGGER_PACKETS_H

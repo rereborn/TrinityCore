@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,8 +16,12 @@
  */
 
 #include "BattlenetPackets.h"
+#include "PacketOperators.h"
+#include "PacketUtilities.h"
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Battlenet::MethodCall const& method)
+namespace WorldPackets::Battlenet
+{
+ByteBuffer& operator<<(ByteBuffer& data, MethodCall const& method)
 {
     data << uint64(method.Type);
     data << uint64(method.ObjectId);
@@ -25,7 +29,7 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Battlenet::MethodCall con
     return data;
 }
 
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Battlenet::MethodCall& method)
+ByteBuffer& operator>>(ByteBuffer& data, MethodCall& method)
 {
     data >> method.Type;
     data >> method.ObjectId;
@@ -33,57 +37,65 @@ ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Battlenet::MethodCall& me
     return data;
 }
 
-WorldPacket const* WorldPackets::Battlenet::Notification::Write()
+WorldPacket const* Notification::Write()
 {
     _worldPacket << Method;
-    _worldPacket << uint32(Data.size());
+    _worldPacket << Size<uint32>(Data);
     _worldPacket.append(Data);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Battlenet::Response::Write()
+WorldPacket const* Response::Write()
 {
     _worldPacket << uint32(BnetStatus);
     _worldPacket << Method;
-    _worldPacket << uint32(Data.size());
+    _worldPacket << Size<uint32>(Data);
     _worldPacket.append(Data);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Battlenet::SetSessionState::Write()
+WorldPacket const* ConnectionStatus::Write()
 {
-    _worldPacket.WriteBits(State, 2);
+    _worldPacket << Bits<2>(State);
+    _worldPacket << Bits<1>(SuppressNotification);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Battlenet::RealmListTicket::Write()
+WorldPacket const* ChangeRealmTicketResponse::Write()
 {
     _worldPacket << uint32(Token);
-    _worldPacket.WriteBit(Allow);
-    _worldPacket << uint32(Ticket.size());
+    _worldPacket << Bits<1>(Allow);
+    _worldPacket << Size<uint32>(Ticket);
     _worldPacket.append(Ticket);
 
     return &_worldPacket;
 }
 
-void WorldPackets::Battlenet::Request::Read()
+void Request::Read()
 {
     uint32 protoSize;
 
     _worldPacket >> Method;
     _worldPacket >> protoSize;
 
-    Data.Resize(protoSize);
-    _worldPacket.read(Data.GetWritePointer(), Data.GetRemainingSpace());
-    Data.WriteCompleted(protoSize);
+    if (protoSize > 0xFFFF)
+        OnInvalidArraySize(protoSize, 0xFFFF);
+
+    if (protoSize)
+    {
+        Data.Resize(protoSize);
+        _worldPacket.read(Data.GetWritePointer(), Data.GetRemainingSpace());
+        Data.WriteCompleted(protoSize);
+    }
 }
 
-void WorldPackets::Battlenet::RequestRealmListTicket::Read()
+void ChangeRealmTicket::Read()
 {
     _worldPacket >> Token;
     _worldPacket.read(Secret.data(), Secret.size());
+}
 }

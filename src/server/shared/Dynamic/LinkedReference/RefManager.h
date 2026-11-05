@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,36 +17,37 @@
 
 #ifndef _REFMANAGER_H
 #define _REFMANAGER_H
-//=====================================================
 
 #include "Dynamic/LinkedList.h"
 #include "Dynamic/LinkedReference/Reference.h"
 
-template <class TO, class FROM>
+template <class ReferenceType>
 class RefManager : public LinkedListHead
 {
-    public:
-        typedef LinkedListHead::Iterator<Reference<TO, FROM>> iterator;
-        RefManager() { }
+public:
+    typedef LinkedListHead::Iterator<ReferenceType> iterator;
+    typedef LinkedListHead::Iterator<ReferenceType const> const_iterator;
+    RefManager() { }
 
-        Reference<TO, FROM>* getFirst()             { return static_cast<Reference<TO, FROM>*>(LinkedListHead::getFirst()); }
+    ReferenceType* front() { return front_impl<ReferenceType>(); }
+    ReferenceType const* front() const { return front_impl<ReferenceType>(); }
 
-        Reference<TO, FROM> const* getFirst() const { return static_cast<Reference<TO, FROM> const*>(LinkedListHead::getFirst()); }
+    iterator begin() { return begin_impl<ReferenceType>(); }
+    iterator end() { return end_impl<ReferenceType>(); }
 
-        iterator begin() { return iterator(getFirst()); }
-        iterator end()   { return iterator(nullptr); }
+    const_iterator begin() const { return begin_impl<ReferenceType>(); }
+    const_iterator end() const { return end_impl<ReferenceType>(); }
 
-        virtual ~RefManager()
-        {
-            clearReferences();
-        }
+    virtual ~RefManager()
+    {
+        clearReferences();
+    }
 
-        void clearReferences()
-        {
-            while (Reference<TO, FROM>* ref = getFirst())
-                ref->invalidate();
-        }
+    void clearReferences()
+    {
+        while (!empty())
+            front()->invalidate();
+    }
 };
 
-//=====================================================
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,22 +16,62 @@
  */
 
 #include "BankPackets.h"
+#include "PacketOperators.h"
 
-void WorldPackets::Bank::AutoBankItem::Read()
+namespace WorldPackets::Bank
 {
-    _worldPacket >> Inv
-                 >> Bag
-                 >> Slot;
+void AutoBankItem::Read()
+{
+    _worldPacket >> Inv;
+    _worldPacket >> As<uint8>(BankType);
+    _worldPacket >> Bag;
+    _worldPacket >> Slot;
 }
 
-void WorldPackets::Bank::AutoStoreBankItem::Read()
+void AutoStoreBankItem::Read()
 {
-    _worldPacket >> Inv
-                 >> Bag
-                 >> Slot;
+    _worldPacket >> Inv;
+    _worldPacket >> Bag;
+    _worldPacket >> Slot;
 }
 
-void WorldPackets::Bank::BuyBankSlot::Read()
+void BuyBankTab::Read()
 {
-    _worldPacket >> Guid;
+    _worldPacket >> Banker;
+    _worldPacket >> As<uint8>(BankType);
+}
+
+void AutoDepositCharacterBank::Read()
+{
+    _worldPacket >> Banker;
+}
+
+void BankerActivate::Read()
+{
+    _worldPacket >> Banker;
+    _worldPacket >> As<int32>(InteractionType);
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, BankTabSettings& settings)
+{
+    data.ResetBitPos();
+    data >> SizedString::BitsSize<7>(settings.Name);
+    data >> SizedString::BitsSize<9>(settings.Icon);
+    data >> SizedString::BitsSize<14>(settings.Description);
+    data >> As<int32>(settings.DepositFlags);
+
+    data >> SizedString::Data(settings.Name);
+    data >> SizedString::Data(settings.Icon);
+    data >> SizedString::Data(settings.Description);
+
+    return data;
+}
+
+void UpdateBankTabSettings::Read()
+{
+    _worldPacket >> Banker;
+    _worldPacket >> As<uint8>(BankType);
+    _worldPacket >> Tab;
+    _worldPacket >> Settings;
+}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,15 +18,38 @@
 #include "ScriptMgr.h"
 #include "arcatraz.h"
 #include "Creature.h"
+#include "CreatureAI.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
 #include "Map.h"
 
-DoorData const doorData[] =
+static constexpr DoorData doorData[] =
 {
-    { GO_CONTAINMENT_CORE_SECURITY_FIELD_ALPHA, DATA_SOCCOTHRATES,  DOOR_TYPE_PASSAGE },
-    { GO_CONTAINMENT_CORE_SECURITY_FIELD_BETA,  DATA_DALLIAH,       DOOR_TYPE_PASSAGE },
-    { 0,                                        0,                  DOOR_TYPE_ROOM } // END
+    { GO_CONTAINMENT_CORE_SECURITY_FIELD_ALPHA, DATA_SOCCOTHRATES,  EncounterDoorBehavior::OpenWhenDone },
+    { GO_CONTAINMENT_CORE_SECURITY_FIELD_BETA,  DATA_DALLIAH,       EncounterDoorBehavior::OpenWhenDone },
+};
+
+static constexpr ObjectData creatureData[] =
+{
+    { NPC_MELLICHAR,              DATA_MELLICHAR        },
+};
+
+static constexpr ObjectData gameObjectData[] =
+{
+    { GO_STASIS_POD_ALPHA,        DATA_STASIS_POD_ALPHA },
+    { GO_STASIS_POD_BETA,         DATA_STASIS_POD_BETA  },
+    { GO_STASIS_POD_DELTA,        DATA_STASIS_POD_DELTA },
+    { GO_STASIS_POD_GAMMA,        DATA_STASIS_POD_GAMMA },
+    { GO_STASIS_POD_OMEGA,        DATA_STASIS_POD_OMEGA },
+    { GO_WARDENS_SHIELD,          DATA_WARDENS_SHIELD   },
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_ZEREKETH, {{ 1916 }} },
+    { DATA_DALLIAH, {{ 1913 }} },
+    { DATA_SOCCOTHRATES, {{ 1915 }} },
+    { DATA_HARBINGER_SKYRISS, {{ 1914 }} }
 };
 
 class instance_arcatraz : public InstanceMapScript
@@ -36,11 +59,13 @@ class instance_arcatraz : public InstanceMapScript
 
         struct instance_arcatraz_InstanceMapScript : public InstanceScript
         {
-            instance_arcatraz_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_arcatraz_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadDoorData(doorData);
+                LoadObjectData(creatureData, gameObjectData);
+                LoadDungeonEncounterData(encounters);
 
                 ConversationState = NOT_STARTED;
 
@@ -49,6 +74,8 @@ class instance_arcatraz : public InstanceMapScript
 
             void OnCreatureCreate(Creature* creature) override
             {
+                InstanceScript::OnCreatureCreate(creature);
+
                 switch (creature->GetEntry())
                 {
                     case NPC_DALLIAH:
@@ -57,52 +84,8 @@ class instance_arcatraz : public InstanceMapScript
                     case NPC_SOCCOTHRATES:
                         SoccothratesGUID = creature->GetGUID();
                         break;
-                    case NPC_MELLICHAR:
-                        MellicharGUID = creature->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            void OnGameObjectCreate(GameObject* go) override
-            {
-                switch (go->GetEntry())
-                {
-                    case GO_CONTAINMENT_CORE_SECURITY_FIELD_ALPHA:
-                    case GO_CONTAINMENT_CORE_SECURITY_FIELD_BETA:
-                        AddDoor(go, true);
-                        break;
-                    case GO_STASIS_POD_ALPHA:
-                        StasisPodGUIDs[0] = go->GetGUID();
-                        break;
-                    case GO_STASIS_POD_BETA:
-                        StasisPodGUIDs[1] = go->GetGUID();
-                        break;
-                    case GO_STASIS_POD_DELTA:
-                        StasisPodGUIDs[2] = go->GetGUID();
-                        break;
-                    case GO_STASIS_POD_GAMMA:
-                        StasisPodGUIDs[3] = go->GetGUID();
-                        break;
-                    case GO_STASIS_POD_OMEGA:
-                        StasisPodGUIDs[4] = go->GetGUID();
-                        break;
-                    case GO_WARDENS_SHIELD:
-                        WardensShieldGUID = go->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            void OnGameObjectRemove(GameObject* go) override
-            {
-                switch (go->GetEntry())
-                {
-                    case GO_CONTAINMENT_CORE_SECURITY_FIELD_ALPHA:
-                    case GO_CONTAINMENT_CORE_SECURITY_FIELD_BETA:
-                        AddDoor(go, false);
+                    case NPC_MILLHOUSE:
+                        MillhouseGUID = creature->GetGUID();
                         break;
                     default:
                         break;
@@ -118,8 +101,6 @@ class instance_arcatraz : public InstanceMapScript
                     case DATA_WARDEN_3:
                     case DATA_WARDEN_4:
                     case DATA_WARDEN_5:
-                        if (data == IN_PROGRESS)
-                            HandleGameObject(StasisPodGUIDs[type - DATA_WARDEN_1], true);
                         StasisPodStates[type - DATA_WARDEN_1] = uint8(data);
                         break;
                     case DATA_CONVERSATION:
@@ -156,10 +137,6 @@ class instance_arcatraz : public InstanceMapScript
                         return DalliahGUID;
                     case DATA_SOCCOTHRATES:
                         return SoccothratesGUID;
-                    case DATA_MELLICHAR:
-                        return MellicharGUID;
-                    case DATA_WARDENS_SHIELD:
-                        return WardensShieldGUID;
                     default:
                         break;
                 }
@@ -182,6 +159,20 @@ class instance_arcatraz : public InstanceMapScript
                             SetData(DATA_WARDEN_4, NOT_STARTED);
                             SetData(DATA_WARDEN_5, NOT_STARTED);
                         }
+                        if (state == DONE)
+                        {
+                            if (!instance->IsHeroic())
+                                break;
+
+                            if (Creature* millhouse = instance->GetCreature(MillhouseGUID))
+                                if (millhouse->IsAlive())
+                                    DoCastSpellOnPlayers(SPELL_QID_10886);
+                        }
+                        if (state == FAIL)
+                        {
+                            if (Creature* mellichar = GetCreature(DATA_MELLICHAR))
+                                mellichar->AI()->DoAction(ACTION_RESET_PRISON);
+                        }
                         break;
                     default:
                         break;
@@ -192,9 +183,7 @@ class instance_arcatraz : public InstanceMapScript
         protected:
             ObjectGuid DalliahGUID;
             ObjectGuid SoccothratesGUID;
-            ObjectGuid StasisPodGUIDs[5];
-            ObjectGuid MellicharGUID;
-            ObjectGuid WardensShieldGUID;
+            ObjectGuid MillhouseGUID;
 
             uint8 ConversationState;
             uint8 StasisPodStates[5];

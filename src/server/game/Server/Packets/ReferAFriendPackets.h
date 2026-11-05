@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,50 +15,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ReferAFriendPackets_h__
-#define ReferAFriendPackets_h__
+#ifndef TRINITYCORE_REFER_A_FRIEND_PACKETS_H
+#define TRINITYCORE_REFER_A_FRIEND_PACKETS_H
 
 #include "Packet.h"
-#include "ObjectGuid.h"
 
 namespace WorldPackets
 {
     namespace RaF
     {
-        class AcceptLevelGrant final : public ClientPacket
+        class RecruitAFriendFailure final : public ServerPacket
         {
         public:
-            AcceptLevelGrant(WorldPacket&& packet) : ClientPacket(CMSG_ACCEPT_LEVEL_GRANT, std::move(packet)) { }
-
-            void Read() override;
-
-            ObjectGuid Granter;
-        };
-
-        class GrantLevel final : public ClientPacket
-        {
-        public:
-            GrantLevel(WorldPacket&& packet) : ClientPacket(CMSG_GRANT_LEVEL, std::move(packet)) { }
-
-            void Read() override;
-
-            ObjectGuid Target;
-        };
-
-        class ProposeLevelGrant final : public ServerPacket
-        {
-        public:
-            ProposeLevelGrant() : ServerPacket(SMSG_PROPOSE_LEVEL_GRANT, 16) { }
-
-            WorldPacket const* Write() override;
-
-            ObjectGuid Sender;
-        };
-
-        class ReferAFriendFailure final : public ServerPacket
-        {
-        public:
-            ReferAFriendFailure() : ServerPacket(SMSG_REFER_A_FRIEND_FAILURE, 1 + 4) { }
+            RecruitAFriendFailure() : ServerPacket(SMSG_RECRUIT_A_FRIEND_FAILURE, 1 + 4) { }
 
             WorldPacket const* Write() override;
 
@@ -68,4 +37,4 @@ namespace WorldPackets
     }
 }
 
-#endif // ReferAFriendPackets_h__
+#endif // TRINITYCORE_REFER_A_FRIEND_PACKETS_H

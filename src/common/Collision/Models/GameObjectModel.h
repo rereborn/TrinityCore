@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,70 +18,97 @@
 #ifndef _GAMEOBJECT_MODEL_H
 #define _GAMEOBJECT_MODEL_H
 
-#include <G3D/Matrix3.h>
-#include <G3D/Vector3.h>
-#include <G3D/AABox.h>
-#include <G3D/Ray.h>
-
 #include "Define.h"
+#include <G3D/AABox.h>
+#include <G3D/Matrix3.h>
+#include <G3D/Quat.h>
+#include <G3D/Ray.h>
+#include <G3D/Vector3.h>
 #include <memory>
-#include <set>
 
 namespace VMAP
 {
+    class GroupModel;
     class WorldModel;
+    struct LocationInfo;
+    enum class ModelIgnoreFlags : uint32;
 }
 
 class GameObject;
+class PhaseShift;
 struct GameObjectDisplayInfoEntry;
 
 class TC_COMMON_API GameObjectModelOwnerBase
 {
 public:
-    virtual bool IsSpawned() const { return false; }
-    virtual uint32 GetDisplayId() const { return 0; }
-    virtual bool IsInPhase(std::set<uint32> const& /*phases*/) const { return false; }
-    virtual G3D::Vector3 GetPosition() const { return G3D::Vector3::zero(); }
-    virtual float GetOrientation() const { return 0.0f; }
-    virtual float GetScale() const { return 1.0f; }
-    virtual void DebugVisualizeCorner(G3D::Vector3 const& /*corner*/) const { }
+    GameObjectModelOwnerBase() = default;
+    GameObjectModelOwnerBase(GameObjectModelOwnerBase const& other) = delete;
+    GameObjectModelOwnerBase(GameObjectModelOwnerBase&& other) noexcept = delete;
+    GameObjectModelOwnerBase& operator=(GameObjectModelOwnerBase const& other) = delete;
+    GameObjectModelOwnerBase& operator=(GameObjectModelOwnerBase&& other) noexcept = delete;
+    virtual ~GameObjectModelOwnerBase() = default;
+
+    virtual bool IsSpawned() const = 0;
+    virtual uint32 GetDisplayId() const = 0;
+    virtual uint8 GetNameSetId() const = 0;
+    virtual bool IsInPhase(PhaseShift const& /*phaseShift*/) const = 0;
+    virtual G3D::Vector3 GetPosition() const = 0;
+    virtual G3D::Quat GetRotation() const = 0;
+    virtual int64 GetPackedRotation() const = 0;
+    virtual float GetScale() const = 0;
+    virtual void DebugVisualizeCorner(G3D::Vector3 const& /*corner*/) const = 0;
 };
 
 class TC_COMMON_API GameObjectModel /*, public Intersectable*/
 {
-    GameObjectModel() : _collisionEnabled(false), iInvScale(0), iScale(0), iModel(nullptr) { }
+    GameObjectModel() : iCollisionEnabled(false), iLosBlockingDisabled(false), iIncludeInNavMesh(false), iInvScale(0), iScale(0), iModel(nullptr) { }
 public:
-    std::string name;
-
     const G3D::AABox& getBounds() const { return iBound; }
 
     ~GameObjectModel();
 
-    const G3D::Vector3& getPosition() const { return iPos;}
+    uint32 GetDisplayId() const { return owner->GetDisplayId(); }
+    G3D::Vector3 const& GetPosition() const { return iPos; }
+    G3D::Quat GetRotation() const { return owner->GetRotation(); }
+    G3D::Matrix3 const& GetInvRot() const { return iInvRot; }
+    int64 GetPackedRotation() const { return owner->GetPackedRotation(); }
+    float GetScale() const { return iScale; }
 
     /* Enables/disables collision */
-    void enableCollision(bool enable) { _collisionEnabled = enable; }
-    bool isCollisionEnabled() const { return _collisionEnabled; }
+    void EnableCollision(bool enable) { iCollisionEnabled = enable; }
+    bool IsCollisionEnabled() const { return iCollisionEnabled; }
+    void DisableLosBlocking(bool enable) { iLosBlockingDisabled = enable; }
+    bool IsLosBlockingDisabled() const { return iLosBlockingDisabled; }
+    void IncludeInNavMesh(bool enable) { iIncludeInNavMesh = enable; }
+    bool IsIncludedInNavMesh() const { return iIncludeInNavMesh; }
+    bool IsMapObject() const;
+    uint8 GetNameSetId() const { return owner->GetNameSetId(); }
 
-    bool intersectRay(G3D::Ray const& ray, float& maxDist, bool stopAtFirstHit, std::set<uint32> const& phases) const;
+    bool IntersectRay(G3D::Ray const& ray, float& maxDist, bool stopAtFirstHit, PhaseShift const& phaseShift, VMAP::ModelIgnoreFlags ignoreFlags) const;
+    bool GetLocationInfo(G3D::Vector3 const& point, VMAP::LocationInfo& info, PhaseShift const& phaseShift) const;
+    bool GetLiquidLevel(G3D::Vector3 const& point, VMAP::GroupModel const* model, float& liqHeight) const;
 
-    static GameObjectModel* Create(std::unique_ptr<GameObjectModelOwnerBase> modelOwner, std::string const& dataPath);
+    static std::unique_ptr<GameObjectModel> Create(std::unique_ptr<GameObjectModelOwnerBase> modelOwner, std::string const& dataPath);
 
     bool UpdatePosition();
+
+    std::shared_ptr<VMAP::WorldModel const> GetWorldModel() const { return iModel; }
 
 private:
     bool initialize(std::unique_ptr<GameObjectModelOwnerBase> modelOwner, std::string const& dataPath);
 
-    bool _collisionEnabled;
+    bool iCollisionEnabled;     ///< Is model ignored in all checks
+    bool iLosBlockingDisabled;  ///< Is model ignored during line of sight checks (but is always included in location/height checks)
+    bool iIncludeInNavMesh;     ///< Is model included when generating navigation mesh
     G3D::AABox iBound;
     G3D::Matrix3 iInvRot;
     G3D::Vector3 iPos;
     float iInvScale;
     float iScale;
-    VMAP::WorldModel* iModel;
+    std::shared_ptr<VMAP::WorldModel> iModel;
     std::unique_ptr<GameObjectModelOwnerBase> owner;
 };
 
-TC_COMMON_API void LoadGameObjectModelList(std::string const& dataPath);
+TC_COMMON_API bool LoadGameObjectModelList(std::string const& dataPath);
 
 #endif // _GAMEOBJECT_MODEL_H

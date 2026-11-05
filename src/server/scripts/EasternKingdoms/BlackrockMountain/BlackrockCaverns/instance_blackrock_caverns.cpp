@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,12 +18,19 @@
 #include "ScriptMgr.h"
 #include "blackrock_caverns.h"
 #include "InstanceScript.h"
-#include "Map.h"
 
-ObjectData const creatureData[] =
+static constexpr ObjectData creatureData[] =
 {
     { NPC_RAZ_THE_CRAZED, DATA_RAZ_THE_CRAZED },
-    { 0,                  0                   }
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_ROMOGG_BONECRUSHER, {{ 1040 }} },
+    { DATA_CORLA, {{ 1038 }} },
+    { DATA_KARSH_STEELBENDER, {{ 1039 }} },
+    { DATA_BEAUTY, {{ 1037 }} },
+    { DATA_ASCENDANT_LORD_OBSIDIUS, {{ 1036 }} }
 };
 
 class instance_blackrock_caverns : public InstanceMapScript
@@ -33,11 +40,12 @@ class instance_blackrock_caverns : public InstanceMapScript
 
         struct instance_blackrock_caverns_InstanceMapScript : public InstanceScript
         {
-            instance_blackrock_caverns_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_blackrock_caverns_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
-                LoadObjectData(creatureData, nullptr);
+                LoadObjectData(creatureData, {});
+                LoadDungeonEncounterData(encounters);
             }
 
             bool SetBossState(uint32 type, EncounterState state) override

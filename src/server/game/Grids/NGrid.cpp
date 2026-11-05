@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,14 +16,21 @@
  */
 
 #include "NGrid.h"
+#include "GridDefines.h"
 #include "Random.h"
 
 GridInfo::GridInfo() : i_timer(0), vis_Update(0, irand(0, DEFAULT_VISIBILITY_NOTIFY_PERIOD)),
-    i_unloadActiveLockCount(0), i_unloadExplicitLock(false), i_unloadReferenceLock(false)
+    i_unloadActiveLockCount(0), i_unloadExplicitLock(false)
 {
 }
 
 GridInfo::GridInfo(time_t expiry, bool unload /*= true */) : i_timer(expiry), vis_Update(0, irand(0, DEFAULT_VISIBILITY_NOTIFY_PERIOD)),
-    i_unloadActiveLockCount(0), i_unloadExplicitLock(!unload), i_unloadReferenceLock(false)
+    i_unloadActiveLockCount(0), i_unloadExplicitLock(!unload)
 {
 }
+
+template class TC_GAME_API Grid<WorldTypeMapContainer, GridTypeMapContainer>;
+template class TC_GAME_API NGrid<MAX_NUMBER_OF_CELLS, WorldTypeMapContainer, GridTypeMapContainer>;
+
+template struct TC_GAME_API TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation>;
+template struct TC_GAME_API TypeListContainer<GridRefManagerContainer, Player, Creature/*pets*/, Corpse/*resurrectable*/, DynamicObject/*farsight target*/>;

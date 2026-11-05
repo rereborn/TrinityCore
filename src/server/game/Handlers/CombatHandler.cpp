@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -33,27 +32,27 @@ void WorldSession::HandleAttackSwingOpcode(WorldPackets::Combat::AttackSwing& pa
     if (!enemy)
     {
         // stop attack state at client
-        SendAttackStop(nullptr);
+        _player->SendMeleeAttackStop(nullptr);
         return;
     }
 
     if (!_player->IsValidAttackTarget(enemy))
     {
         // stop attack state at client
-        SendAttackStop(enemy);
+        _player->SendMeleeAttackStop(enemy);
         return;
     }
 
-    //! Client explicitly checks the following before sending CMSG_ATTACKSWING packet,
+    //! Client explicitly checks the following before sending CMSG_ATTACK_SWING packet,
     //! so we'll place the same check here. Note that it might be possible to reuse this snippet
     //! in other places as well.
     if (Vehicle* vehicle = _player->GetVehicle())
     {
         VehicleSeatEntry const* seat = vehicle->GetSeatForPassenger(_player);
         ASSERT(seat);
-        if (!(seat->Flags[0] & VEHICLE_SEAT_FLAG_CAN_ATTACK))
+        if (!(seat->Flags & VEHICLE_SEAT_FLAG_CAN_ATTACK))
         {
-            SendAttackStop(enemy);
+            _player->SendMeleeAttackStop(enemy);
             return;
         }
     }
@@ -61,7 +60,7 @@ void WorldSession::HandleAttackSwingOpcode(WorldPackets::Combat::AttackSwing& pa
     _player->Attack(enemy, true);
 }
 
-void WorldSession::HandleAttackStopOpcode(WorldPackets::Combat::AttackStop& /*recvData*/)
+void WorldSession::HandleAttackStopOpcode(WorldPackets::Combat::AttackStop& /*packet*/)
 {
     GetPlayer()->AttackStop();
 }
@@ -70,14 +69,9 @@ void WorldSession::HandleSetSheathedOpcode(WorldPackets::Combat::SetSheathed& pa
 {
     if (packet.CurrentSheathState >= MAX_SHEATH_STATE)
     {
-        TC_LOG_ERROR("network", "Unknown sheath state %u ??", packet.CurrentSheathState);
+        TC_LOG_ERROR("network", "Unknown sheath state {} ??", packet.CurrentSheathState);
         return;
     }
 
     GetPlayer()->SetSheath(SheathState(packet.CurrentSheathState));
-}
-
-void WorldSession::SendAttackStop(Unit const* enemy)
-{
-    SendPacket(WorldPackets::Combat::SAttackStop(GetPlayer(), enemy).Write());
 }

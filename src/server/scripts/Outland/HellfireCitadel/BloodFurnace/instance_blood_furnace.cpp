@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,16 +22,72 @@
 #include "GameObject.h"
 #include "InstanceScript.h"
 #include "Map.h"
+#include <algorithm>
 
-DoorData const doorData[] =
+static constexpr DoorData doorData[] =
 {
-    { GO_PRISON_DOOR_01, DATA_KELIDAN_THE_BREAKER, DOOR_TYPE_PASSAGE },
-    { GO_PRISON_DOOR_02, DATA_THE_MAKER,           DOOR_TYPE_ROOM },
-    { GO_PRISON_DOOR_03, DATA_THE_MAKER,           DOOR_TYPE_PASSAGE },
-    { GO_PRISON_DOOR_04, DATA_BROGGOK,             DOOR_TYPE_PASSAGE },
-    { GO_PRISON_DOOR_05, DATA_BROGGOK,             DOOR_TYPE_ROOM },
-    { GO_SUMMON_DOOR,    DATA_KELIDAN_THE_BREAKER, DOOR_TYPE_PASSAGE },
-    { 0,                 0,                        DOOR_TYPE_ROOM } // END
+    { GO_PRISON_DOOR_01,     DATA_KELIDAN,   EncounterDoorBehavior::OpenWhenDone },
+    { GO_PRISON_DOOR_02,     DATA_THE_MAKER, EncounterDoorBehavior::OpenWhenNotInProgress },
+    { GO_PRISON_DOOR_03,     DATA_THE_MAKER, EncounterDoorBehavior::OpenWhenDone },
+    { GO_PRISON_DOOR_05,     DATA_BROGGOK,   EncounterDoorBehavior::OpenWhenNotInProgress },
+    { GO_SUMMON_DOOR,        DATA_KELIDAN,   EncounterDoorBehavior::OpenWhenDone },
+    { GO_PRISON_CELL_DOOR_4, DATA_THE_MAKER, EncounterDoorBehavior::OpenWhenDone }
+};
+
+static constexpr ObjectData creatureData[] =
+{
+    { NPC_THE_MAKER,           DATA_THE_MAKER },
+    { NPC_BROGGOK,             DATA_BROGGOK   },
+    { NPC_KELIDAN,             DATA_KELIDAN   }
+};
+
+static constexpr ObjectData gameObjectData[] =
+{
+    { GO_BROGGOK_LEVER,          DATA_BROGGOK_LEVER      },
+    { GO_PRISON_DOOR_04,         DATA_PRISON_DOOR_04     },
+    { GO_PRISON_DOOR_05,         DATA_PRISON_DOOR_05     },
+    { GO_PRISON_CELL_DOOR_5,     DATA_PRISON_CELL_DOOR_5 },
+    { GO_PRISON_CELL_DOOR_6,     DATA_PRISON_CELL_DOOR_6 },
+    { GO_PRISON_CELL_DOOR_7,     DATA_PRISON_CELL_DOOR_7 },
+    { GO_PRISON_CELL_DOOR_8,     DATA_PRISON_CELL_DOOR_8 }
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_THE_MAKER, {{ 1922 }} },
+    { DATA_BROGGOK, {{ 1924 }} },
+    { DATA_KELIDAN, {{ 1923 }} }
+};
+
+struct PrisonersWave
+{
+    std::string_view StringId;
+    uint32 CellOrDoorToOpen;
+    int32 BossActionIdOnClear;
+};
+
+static constexpr std::array<PrisonersWave, 4> PrisonersWaves =
+{{
+    { "BroggokPrisonerCell1", DATA_PRISON_CELL_DOOR_6, 0 },
+    { "BroggokPrisonerCell2", DATA_PRISON_CELL_DOOR_7, 0 },
+    { "BroggokPrisonerCell3", DATA_PRISON_CELL_DOOR_8, 0 },
+    { "BroggokPrisonerCell4", DATA_PRISON_DOOR_04, ACTION_RELEASE_BROGGOK }
+}};
+
+static constexpr std::array<uint32, 4> PrisonCellDoorsData =
+{
+    DATA_PRISON_CELL_DOOR_5,
+    DATA_PRISON_CELL_DOOR_6,
+    DATA_PRISON_CELL_DOOR_7,
+    DATA_PRISON_CELL_DOOR_8
+};
+
+static constexpr std::array<uint32, 4> PrisonersSpawnGroupsData =
+{
+    SPAWN_GROUP_PRISONERS_1,
+    SPAWN_GROUP_PRISONERS_2,
+    SPAWN_GROUP_PRISONERS_3,
+    SPAWN_GROUP_PRISONERS_4
 };
 
 class instance_blood_furnace : public InstanceMapScript
@@ -41,296 +97,141 @@ class instance_blood_furnace : public InstanceMapScript
 
         struct instance_blood_furnace_InstanceMapScript : public InstanceScript
         {
-            instance_blood_furnace_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_blood_furnace_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadDoorData(doorData);
+                LoadObjectData(creatureData, gameObjectData);
+                LoadDungeonEncounterData(encounters);
 
-                PrisonerCounter5        = 0;
-                PrisonerCounter6        = 0;
-                PrisonerCounter7        = 0;
-                PrisonerCounter8        = 0;
+                PrisonersEventState = NOT_STARTED;
+                ShouldResetPrisoners = true;
+            }
+
+            void OnPlayerEnter(Player* /*player*/) override
+            {
+                if (ShouldResetPrisoners)
+                {
+                    for (uint32 group : PrisonersSpawnGroupsData)
+                        instance->SpawnGroupSpawn(group, true);
+
+                    ShouldResetPrisoners = false;
+                }
             }
 
             void OnCreatureCreate(Creature* creature) override
             {
-                switch (creature->GetEntry())
-                {
-                    case NPC_THE_MAKER:
-                        TheMakerGUID = creature->GetGUID();
-                        break;
-                    case NPC_BROGGOK:
-                        BroggokGUID = creature->GetGUID();
-                        break;
-                    case NPC_KELIDAN_THE_BREAKER:
-                        KelidanTheBreakerGUID = creature->GetGUID();
-                        break;
-                    case NPC_PRISONER:
-                        StorePrisoner(creature);
-                        break;
-                    default:
-                        break;
-                }
+                InstanceScript::OnCreatureCreate(creature);
+
+                auto prisonerWave = std::ranges::find_if(PrisonersWaves, [creature](std::string_view stringId) { return creature->HasStringId(stringId); }, &PrisonersWave::StringId);
+                if (prisonerWave != PrisonersWaves.end())
+                    WaveGuidList[std::ranges::distance(PrisonersWaves.begin(), prisonerWave)].insert(creature->GetGUID());
             }
 
             void OnUnitDeath(Unit* unit) override
             {
-                if (unit->GetTypeId() == TYPEID_UNIT && unit->GetEntry() == NPC_PRISONER)
-                    PrisonerDied(unit->GetGUID());
+                InstanceScript::OnUnitDeath(unit);
+
+                if (unit->GetTypeId() != TYPEID_UNIT)
+                    return;
+
+                auto prisonerWave = std::ranges::find_if(PrisonersWaves, [creature = unit->ToCreature()](std::string_view stringId) { return creature->HasStringId(stringId); }, &PrisonersWave::StringId);
+                if (prisonerWave != PrisonersWaves.end())
+                {
+                    std::ptrdiff_t waveIndex = std::ranges::distance(PrisonersWaves.begin(), prisonerWave);
+                    if (WaveGuidList[waveIndex].erase(unit->GetGUID()) && WaveGuidList[waveIndex].empty())
+                    {
+                        if (prisonerWave->CellOrDoorToOpen)
+                            if (GameObject* go = GetGameObject(prisonerWave->CellOrDoorToOpen))
+                                HandleGameObject(ObjectGuid::Empty, true, go);
+
+                        if (waveIndex + 1 < std::ranges::ssize(WaveGuidList))
+                            for (ObjectGuid guid : WaveGuidList[waveIndex + 1])
+                                if (Creature* creature = instance->GetCreature(guid))
+                                    creature->AI()->DoAction(ACTION_PRISONER_ENGAGE);
+
+                        if (prisonerWave->BossActionIdOnClear)
+                            if (Creature* broggok = GetCreature(DATA_BROGGOK))
+                                broggok->AI()->DoAction(prisonerWave->BossActionIdOnClear);
+                    }
+                }
             }
 
             void OnGameObjectCreate(GameObject* go) override
             {
-                switch (go->GetEntry())
+                InstanceScript::OnGameObjectCreate(go);
+
+                if (go->GetEntry() == GO_PRISON_DOOR_04)
+                    if (GetBossState(DATA_BROGGOK) == DONE)
+                        HandleGameObject(ObjectGuid::Empty, true, go);
+            }
+
+            void SetData(uint32 type, uint32 data) override
+            {
+                // This have to be done without boss state since encounter starts when Broggok is engaged, not when prisoners event starts
+                if (type == DATA_PRISONERS_EVENT)
                 {
-                    case GO_PRISON_DOOR_04:
-                        PrisonDoor4GUID = go->GetGUID();
-                        // no break
-                    case GO_PRISON_DOOR_01:
-                    case GO_PRISON_DOOR_02:
-                    case GO_PRISON_DOOR_03:
-                    case GO_PRISON_DOOR_05:
-                    case GO_SUMMON_DOOR:
-                        AddDoor(go, true);
-                        break;
-                    case GO_BROGGOK_LEVER:
-                        BroggokLeverGUID = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_1:
-                        PrisonCellGUIDs[DATA_PRISON_CELL1 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_2:
-                        PrisonCellGUIDs[DATA_PRISON_CELL2 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_3:
-                        PrisonCellGUIDs[DATA_PRISON_CELL3 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_4:
-                        PrisonCellGUIDs[DATA_PRISON_CELL4 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_5:
-                        PrisonCellGUIDs[DATA_PRISON_CELL5 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_6:
-                        PrisonCellGUIDs[DATA_PRISON_CELL6 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_7:
-                        PrisonCellGUIDs[DATA_PRISON_CELL7 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    case GO_PRISON_CELL_DOOR_8:
-                        PrisonCellGUIDs[DATA_PRISON_CELL8 - DATA_PRISON_CELL1] = go->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            void OnGameObjectRemove(GameObject* go) override
-            {
-                switch (go->GetEntry())
-                {
-                    case GO_PRISON_DOOR_01:
-                    case GO_PRISON_DOOR_02:
-                    case GO_PRISON_DOOR_03:
-                    case GO_PRISON_DOOR_04:
-                    case GO_PRISON_DOOR_05:
-                    case GO_SUMMON_DOOR:
-                        AddDoor(go, false);
-                        break;
-                    default:
-                        break;
-                }
-            }
-
-            ObjectGuid GetGuidData(uint32 type) const override
-            {
-                switch (type)
-                {
-                    case DATA_THE_MAKER:
-                        return TheMakerGUID;
-                    case DATA_BROGGOK:
-                        return BroggokGUID;
-                    case DATA_KELIDAN_THE_BREAKER:
-                        return KelidanTheBreakerGUID;
-                    case DATA_BROGGOK_LEVER:
-                        return BroggokLeverGUID;
-                }
-
-                return ObjectGuid::Empty;
-            }
-
-            bool SetBossState(uint32 type, EncounterState state) override
-            {
-                if (!InstanceScript::SetBossState(type, state))
-                    return false;
-
-                switch (type)
-                {
-                    case DATA_BROGGOK:
-                        switch (state)
-                        {
-                            case IN_PROGRESS:
-                                ActivateCell(DATA_PRISON_CELL5);
-                                break;
-                            case NOT_STARTED:
-                                ResetPrisons();
-                                if (GameObject* lever = instance->GetGameObject(BroggokLeverGUID))
-                                    lever->Respawn();
-                                break;
-                            default:
-                                break;
-                        }
-                        break;
-                    default:
-                        break;
-                }
-
-                return true;
-            }
-
-            void ResetPrisons()
-            {
-                PrisonerCounter5 = PrisonersCell5.size();
-                ResetPrisoners(PrisonersCell5);
-                HandleGameObject(PrisonCellGUIDs[DATA_PRISON_CELL5 - DATA_PRISON_CELL1], false);
-
-                PrisonerCounter6 = PrisonersCell6.size();
-                ResetPrisoners(PrisonersCell6);
-                HandleGameObject(PrisonCellGUIDs[DATA_PRISON_CELL6 - DATA_PRISON_CELL1], false);
-
-                PrisonerCounter7 = PrisonersCell7.size();
-                ResetPrisoners(PrisonersCell7);
-                HandleGameObject(PrisonCellGUIDs[DATA_PRISON_CELL7 - DATA_PRISON_CELL1], false);
-
-                PrisonerCounter8 = PrisonersCell8.size();
-                ResetPrisoners(PrisonersCell8);
-                HandleGameObject(PrisonCellGUIDs[DATA_PRISON_CELL8 - DATA_PRISON_CELL1], false);
-            }
-
-            void ResetPrisoners(GuidSet const& prisoners)
-            {
-                for (GuidSet::const_iterator i = prisoners.begin(); i != prisoners.end(); ++i)
-                    if (Creature* prisoner = instance->GetCreature(*i))
-                        ResetPrisoner(prisoner);
-            }
-
-            void ResetPrisoner(Creature* prisoner)
-            {
-                if (!prisoner->IsAlive())
-                    prisoner->Respawn(true);
-                prisoner->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_NON_ATTACKABLE);
-            }
-
-            void StorePrisoner(Creature* creature)
-            {
-                float posX = creature->GetPositionX();
-                float posY = creature->GetPositionY();
-
-                if (posX >= 405.0f && posX <= 423.0f)
-                {
-                    if (posY >= 106.0f && posY <= 123.0f)
-                    {
-                        PrisonersCell5.insert(creature->GetGUID());
-                        ++PrisonerCounter5;
-                    }
-                    else if (posY >= 76.0f && posY <= 91.0f)
-                    {
-                        PrisonersCell6.insert(creature->GetGUID());
-                        ++PrisonerCounter6;
-                    }
-                    else return;
-                }
-                else if (posX >= 490.0f && posX <= 506.0f)
-                {
-                    if (posY >= 106.0f && posY <= 123.0f)
-                    {
-                        PrisonersCell7.insert(creature->GetGUID());
-                        ++PrisonerCounter7;
-                    }
-                    else if (posY >= 76.0f && posY <= 91.0f)
-                    {
-                        PrisonersCell8.insert(creature->GetGUID());
-                        ++PrisonerCounter8;
-                    }
-                    else
+                    // Do not set data to current - don't trigger events more than once
+                    if (PrisonersEventState == data)
                         return;
-                }
-                else
-                    return;
 
-                ResetPrisoner(creature);
-            }
+                    PrisonersEventState = data;
 
-            void PrisonerDied(ObjectGuid guid)
-            {
-                if (PrisonersCell5.find(guid) != PrisonersCell5.end() && --PrisonerCounter5 <= 0)
-                    ActivateCell(DATA_PRISON_CELL6);
-                else if (PrisonersCell6.find(guid) != PrisonersCell6.end() && --PrisonerCounter6 <= 0)
-                    ActivateCell(DATA_PRISON_CELL7);
-                else if (PrisonersCell7.find(guid) != PrisonersCell7.end() && --PrisonerCounter7 <= 0)
-                    ActivateCell(DATA_PRISON_CELL8);
-                else if (PrisonersCell8.find(guid) != PrisonersCell8.end() && --PrisonerCounter8 <= 0)
-                    ActivateCell(DATA_DOOR_4);
-            }
-
-            void ActivateCell(uint8 id)
-            {
-                switch (id)
-                {
-                    case DATA_PRISON_CELL5:
-                        HandleGameObject(PrisonCellGUIDs[id - DATA_PRISON_CELL1], true);
-                        ActivatePrisoners(PrisonersCell5);
-                        break;
-                    case DATA_PRISON_CELL6:
-                        HandleGameObject(PrisonCellGUIDs[id - DATA_PRISON_CELL1], true);
-                        ActivatePrisoners(PrisonersCell6);
-                        break;
-                    case DATA_PRISON_CELL7:
-                        HandleGameObject(PrisonCellGUIDs[id - DATA_PRISON_CELL1], true);
-                        ActivatePrisoners(PrisonersCell7);
-                        break;
-                    case DATA_PRISON_CELL8:
-                        HandleGameObject(PrisonCellGUIDs[id - DATA_PRISON_CELL1], true);
-                        ActivatePrisoners(PrisonersCell8);
-                        break;
-                    case DATA_DOOR_4:
-                        HandleGameObject(PrisonDoor4GUID, true);
-                        if (Creature* broggok = instance->GetCreature(BroggokGUID))
-                            broggok->AI()->DoAction(ACTION_ACTIVATE_BROGGOK);
-                        break;
-                }
-            }
-
-            void ActivatePrisoners(GuidSet const& prisoners)
-            {
-                for (GuidSet::const_iterator i = prisoners.begin(); i != prisoners.end(); ++i)
-                    if (Creature* prisoner = instance->GetCreature(*i))
+                    switch (data)
                     {
-                        prisoner->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_NON_ATTACKABLE);
-                        prisoner->SetInCombatWithZone();
+                        case IN_PROGRESS:
+                        {
+                            if (Creature* broggok = GetCreature(DATA_BROGGOK))
+                                broggok->AI()->DoAction(ACTION_PERFORM_INTRO);
+
+                            if (GameObject* go = GetGameObject(DATA_PRISON_DOOR_05))
+                                HandleGameObject(ObjectGuid::Empty, false, go);
+
+                            if (GameObject* go = GetGameObject(DATA_PRISON_CELL_DOOR_5))
+                                HandleGameObject(ObjectGuid::Empty, true, go);
+
+                            for (ObjectGuid guid : WaveGuidList[0])
+                                if (Creature* creature = instance->GetCreature(guid))
+                                    creature->AI()->DoAction(ACTION_PRISONER_ENGAGE);
+
+                            break;
+                        }
+                        case FAIL:
+                        {
+                            if (GameObject* lever = GetGameObject(DATA_BROGGOK_LEVER))
+                                lever->ActivateObject(GameObjectActions::MakeActive, 0);
+
+                            if (Creature* broggok = GetCreature(DATA_BROGGOK))
+                                broggok->AI()->DoAction(ACTION_DESPAWN_TRIGGER);
+
+                            if (GameObject* go = GetGameObject(DATA_PRISON_DOOR_05))
+                                HandleGameObject(ObjectGuid::Empty, true, go);
+
+                            for (uint32 prisonCellId : PrisonCellDoorsData)
+                                if (GameObject* go = GetGameObject(prisonCellId))
+                                    HandleGameObject(ObjectGuid::Empty, false, go);
+
+                            for (uint32 group : PrisonersSpawnGroupsData)
+                                instance->SpawnGroupSpawn(group, true);
+
+                            break;
+                        }
+                        default:
+                            break;
                     }
+                }
+            }
+
+            void AfterDataLoad() override
+            {
+                ShouldResetPrisoners = GetBossState(DATA_BROGGOK) != DONE;
             }
 
         protected:
-            ObjectGuid TheMakerGUID;
-            ObjectGuid BroggokGUID;
-            ObjectGuid KelidanTheBreakerGUID;
-
-            ObjectGuid BroggokLeverGUID;
-            ObjectGuid PrisonDoor4GUID;
-
-            ObjectGuid PrisonCellGUIDs[8];
-
-            GuidSet PrisonersCell5;
-            GuidSet PrisonersCell6;
-            GuidSet PrisonersCell7;
-            GuidSet PrisonersCell8;
-
-            uint8 PrisonerCounter5;
-            uint8 PrisonerCounter6;
-            uint8 PrisonerCounter7;
-            uint8 PrisonerCounter8;
+            GuidSet WaveGuidList[4];
+            uint8 PrisonersEventState;
+            bool ShouldResetPrisoners;
         };
 
         InstanceScript* GetInstanceScript(InstanceMap* map) const override

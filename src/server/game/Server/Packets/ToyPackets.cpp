@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,33 +16,46 @@
  */
 
 #include "ToyPackets.h"
+#include "PacketOperators.h"
 
-void WorldPackets::Toy::AddToy::Read()
+namespace WorldPackets::Toy
+{
+void AddToy::Read()
 {
     _worldPacket >> Guid;
 }
 
-void WorldPackets::Toy::UseToy::Read()
+void UseToy::Read()
 {
     _worldPacket >> Cast;
 }
 
-WorldPacket const* WorldPackets::Toy::AccountToysUpdate::Write()
+WorldPacket const* AccountToyUpdate::Write()
 {
-    _worldPacket.WriteBit(IsFullUpdate);
+    _worldPacket << Bits<1>(IsFullUpdate);
     _worldPacket.FlushBits();
 
-    // both lists have to have the same size
-    _worldPacket << int32(Toys->size());
-    _worldPacket << int32(Toys->size());
+    // all lists have to have the same size
+    _worldPacket << Size<uint32>(*Toys); // ids
+    _worldPacket << Size<uint32>(*Toys); // favorites
+    _worldPacket << Size<uint32>(*Toys); // fanfare
 
-    for (auto const& item : *Toys)
-        _worldPacket << uint32(item.first);
+    for (auto const& [itemId, _] : *Toys)
+        _worldPacket << uint32(itemId);
 
-    for (auto const& favourite : *Toys)
-        _worldPacket.WriteBit(favourite.second);
+    for (auto const& [_, flags] : *Toys)
+        _worldPacket << Bits<1>(flags.HasFlag(ToyFlags::Favorite));
+
+    for (auto const& [_, flags] : *Toys)
+        _worldPacket << Bits<1>(flags.HasFlag(ToyFlags::HasFanfare));
 
     _worldPacket.FlushBits();
 
     return &_worldPacket;
+}
+
+void ToyClearFanfare::Read()
+{
+    _worldPacket >> ItemID;
+}
 }

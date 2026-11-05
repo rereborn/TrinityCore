@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,8 +17,16 @@
 
 #include "ScriptMgr.h"
 #include "InstanceScript.h"
+#include "Unit.h"
 #include "mana_tombs.h"
-#include "Map.h"
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_PANDEMONIUS, {{ 1900 }} },
+    { DATA_TAVAROK, {{ 1901 }} },
+    { DATA_NEXUSPRINCE_SHAFFAR, {{ 1899 }} },
+    { DATA_YOR, {{ 250 }} }
+};
 
 class instance_mana_tombs : public InstanceMapScript
 {
@@ -27,10 +35,17 @@ class instance_mana_tombs : public InstanceMapScript
 
         struct instance_mana_tombs_InstanceMapScript : public InstanceScript
         {
-            instance_mana_tombs_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_mana_tombs_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
+                LoadDungeonEncounterData(encounters);
+            }
+
+            void OnUnitDeath(Unit* unit) override
+            {
+                if (unit->GetEntry() == NPC_TAVAROK)
+                    SetBossState(DATA_TAVAROK, DONE);
             }
         };
 

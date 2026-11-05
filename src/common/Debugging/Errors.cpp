@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,90 +16,160 @@
  */
 
 #include "Errors.h"
-
-#include <cstdio>
-#include <cstdlib>
+#include "StringFormat.h"
 #include <thread>
 #include <cstdarg>
+#include <cstdio>
+#include <cstring>
 
 /**
     @file Errors.cpp
 
     @brief This file contains definitions of functions used for reporting critical application errors
 
-    It is very important that (std::)abort is NEVER called in place of *((volatile int*)NULL) = 0;
+    It is very important that (std::)abort is NEVER called in place of *((volatile int*)nullptr) = 0;
     Calling abort() on Windows does not invoke unhandled exception filters - a mechanism used by WheatyExceptionReport
     to log crashes. exit(1) calls here are for static analysis tools to indicate that calling functions defined in this file
     terminates the application.
  */
 
-namespace Trinity {
+#if TRINITY_COMPILER_IS_MICROSOFT
+#define Unreachable() __assume(false)
+#define GetReturnAddress() _ReturnAddress()
+#else
+#define Unreachable() __builtin_unreachable()
+#define GetReturnAddress() __builtin_return_address(0)
+#endif
 
-void Assert(char const* file, int line, char const* function, char const* message)
+#if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
+#include <Windows.h>
+#include <intrin.h>
+#define Crash(message) \
+    ULONG_PTR execeptionArgs[] = { reinterpret_cast<ULONG_PTR>(strdup(message)), reinterpret_cast<ULONG_PTR>(GetReturnAddress()) }; \
+    RaiseException(EXCEPTION_ASSERTION_FAILURE, 0, 2, execeptionArgs); \
+    Unreachable()
+#else
+// should be easily accessible in gdb
+extern "C" { TC_COMMON_API char const* TrinityAssertionFailedMessage = nullptr; }
+#define Crash(message) \
+    TrinityAssertionFailedMessage = strdup(message); \
+    *((volatile int*)nullptr) = 0; \
+    Unreachable()
+#endif
+
+namespace
 {
-    fprintf(stderr, "\n%s:%i in %s ASSERTION FAILED:\n  %s\n",
-            file, line, function, message);
-    *((volatile int*)NULL) = 0;
-    exit(1);
+    void FormatAssertionMessageTo(std::string& formatted, char const* format, va_list args) noexcept
+    {
+        va_list len;
+
+        va_copy(len, args);
+        int32 length = vsnprintf(nullptr, 0, format, len);
+        va_end(len);
+
+        std::size_t offset = formatted.length();
+        formatted.resize(offset + length);
+        vsnprintf(&formatted[offset], length + 1, format, args);
+    }
 }
 
-void Assert(char const* file, int line, char const* function, char const* message, char const* format, ...)
+namespace Trinity
+{
+void Assert(char const* file, int line, char const* function, char const* message, std::string debugInfo) noexcept
+{
+    std::string formattedMessage = StringFormat("\n{}:{} in {} ASSERTION FAILED:\n  {}\n{}\n", file, line, function, message, debugInfo);
+    fprintf(stderr, "%s", formattedMessage.c_str());
+    fflush(stderr);
+    Crash(formattedMessage.c_str());
+}
+
+void Assert(char const* file, int line, char const* function, char const* message, std::string debugInfo, char const* format, ...) noexcept
 {
     va_list args;
     va_start(args, format);
 
-    fprintf(stderr, "\n%s:%i in %s ASSERTION FAILED:\n  %s ", file, line, function, message);
-    vfprintf(stderr, format, args);
-    fprintf(stderr, "\n");
+    std::string formattedMessage = StringFormat("\n{}:{} in {} ASSERTION FAILED:\n  {}\n", file, line, function, message);
+    FormatAssertionMessageTo(formattedMessage, format, args);
+    va_end(args);
+
+    formattedMessage.append(1, '\n');
+    formattedMessage.append(debugInfo);
+    formattedMessage.append(1, '\n');
+
+    fprintf(stderr, "%s", formattedMessage.c_str());
     fflush(stderr);
 
-    va_end(args);
-    *((volatile int*)NULL) = 0;
-    exit(1);
+    Crash(formattedMessage.c_str());
 }
 
-void Fatal(char const* file, int line, char const* function, char const* message, ...)
+void Fatal(char const* file, int line, char const* function, char const* message, ...) noexcept
 {
     va_list args;
     va_start(args, message);
 
-    fprintf(stderr, "\n%s:%i in %s FATAL ERROR:\n  ", file, line, function);
-    vfprintf(stderr, message, args);
-    fprintf(stderr, "\n");
+    std::string formattedMessage = StringFormat("\n{}:{} in {} FATAL ERROR:\n", file, line, function);
+    FormatAssertionMessageTo(formattedMessage, message, args);
+    va_end(args);
+
+    formattedMessage.append(1, '\n');
+
+    fprintf(stderr, "%s", formattedMessage.c_str());
     fflush(stderr);
 
     std::this_thread::sleep_for(std::chrono::seconds(10));
-    *((volatile int*)NULL) = 0;
-    exit(1);
+    Crash(formattedMessage.c_str());
 }
 
-void Error(char const* file, int line, char const* function, char const* message)
+void Error(char const* file, int line, char const* function, char const* message) noexcept
 {
-    fprintf(stderr, "\n%s:%i in %s ERROR:\n  %s\n",
-                   file, line, function, message);
-    *((volatile int*)NULL) = 0;
-    exit(1);
+    std::string formattedMessage = StringFormat("\n{}:{} in {} ERROR:\n  {}\n", file, line, function, message);
+    fprintf(stderr, "%s", formattedMessage.c_str());
+    fflush(stderr);
+    Crash(formattedMessage.c_str());
 }
 
-void Warning(char const* file, int line, char const* function, char const* message)
+void Warning(char const* file, int line, char const* function, char const* message) noexcept
 {
     fprintf(stderr, "\n%s:%i in %s WARNING:\n  %s\n",
                    file, line, function, message);
 }
 
-void Abort(char const* file, int line, char const* function)
+void Abort(char const* file, int line, char const* function) noexcept
 {
-    fprintf(stderr, "\n%s:%i in %s ABORTED.\n",
-                   file, line, function);
-    *((volatile int*)NULL) = 0;
-    exit(1);
+    std::string formattedMessage = StringFormat("\n{}:{} in {} ABORTED.\n", file, line, function);
+    fprintf(stderr, "%s", formattedMessage.c_str());
+    fflush(stderr);
+    Crash(formattedMessage.c_str());
 }
 
-void AbortHandler(int /*sigval*/)
+void Abort(char const* file, int line, char const* function, char const* message, ...) noexcept
+{
+    va_list args;
+    va_start(args, message);
+
+    std::string formattedMessage = StringFormat("\n{}:{} in {} ABORTED:\n", file, line, function);
+    FormatAssertionMessageTo(formattedMessage, message, args);
+    va_end(args);
+
+    formattedMessage.append(1, '\n');
+
+    fprintf(stderr, "%s", formattedMessage.c_str());
+    fflush(stderr);
+
+    Crash(formattedMessage.c_str());
+}
+
+void AbortHandler(int sigval) noexcept
 {
     // nothing useful to log here, no way to pass args
-    *((volatile int*)NULL) = 0;
-    exit(1);
+    std::string formattedMessage = StringFormat("Caught signal {}\n", sigval);
+    fprintf(stderr, "%s", formattedMessage.c_str());
+    fflush(stderr);
+    Crash(formattedMessage.c_str());
 }
-
 } // namespace Trinity
+
+std::string GetDebugInfo()
+{
+    return "";
+}

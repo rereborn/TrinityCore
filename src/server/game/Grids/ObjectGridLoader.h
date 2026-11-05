@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,44 +15,61 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef TRINITY_OBJECTGRIDLOADER_H
-#define TRINITY_OBJECTGRIDLOADER_H
+#ifndef TRINITY_OBJECT_GRID_LOADER_H
+#define TRINITY_OBJECT_GRID_LOADER_H
 
-#include "TypeList.h"
 #include "Define.h"
-#include "GridLoader.h"
 #include "GridDefines.h"
-#include "Cell.h"
+#include "ObjectGuid.h"
 
-class ObjectWorldLoader;
+class Map;
+class ObjectGuid;
 
-class TC_GAME_API ObjectGridLoader
+class TC_GAME_API ObjectGridLoaderBase
 {
-    friend class ObjectWorldLoader;
-
     public:
-        ObjectGridLoader(NGridType &grid, Map* map, const Cell &cell)
-            : i_cell(cell), i_grid(grid), i_map(map), i_gameObjects(0), i_creatures(0), i_corpses (0)
+        ObjectGridLoaderBase(NGridType& grid, Map* map)
+            : i_grid(grid), i_map(map), i_gameObjects(0), i_creatures(0), i_corpses(0), i_areaTriggers(0)
             { }
 
-        void Visit(GameObjectMapType &m);
-        void Visit(CreatureMapType &m);
-        void Visit(CorpseMapType &) const { }
-        void Visit(DynamicObjectMapType&) const { }
-        void Visit(AreaTriggerMapType &) const { }
-        void Visit(ConversationMapType &) const { }
+        uint32 GetLoadedCreatures() const { return i_creatures; }
+        uint32 GetLoadedGameObjects() const { return i_gameObjects; }
+        uint32 GetLoadedCorpses() const { return i_corpses; }
+        uint32 GetLoadedAreaTriggers() const { return i_areaTriggers; }
 
-        void LoadN(void);
+        template <typename T>
+        static void AddToMap(T* obj, Map* map, uint32& objectCount);
 
-        template<class T> static void SetObjectCell(T* obj, CellCoord const& cellCoord);
-
-    private:
-        Cell i_cell;
+    protected:
         NGridType &i_grid;
         Map* i_map;
         uint32 i_gameObjects;
         uint32 i_creatures;
         uint32 i_corpses;
+        uint32 i_areaTriggers;
+};
+
+class TC_GAME_API ObjectGridLoader : public ObjectGridLoaderBase
+{
+    public:
+        ObjectGridLoader(NGridType& grid, Map* map)
+            : ObjectGridLoaderBase(grid, map)
+            { }
+
+        void LoadN();
+};
+
+class TC_GAME_API PersonalPhaseGridLoader : public ObjectGridLoaderBase
+{
+    public:
+        PersonalPhaseGridLoader(NGridType& grid, Map* map, ObjectGuid const& phaseOwner)
+            : ObjectGridLoaderBase(grid, map), _phaseOwner(phaseOwner)
+            { }
+
+        void Load(uint32 phaseId);
+
+    private:
+        ObjectGuid _phaseOwner;
 };
 
 //Stop the creatures before unloading the NGrid

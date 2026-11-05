@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,88 +17,69 @@
 
 #include "adtfile.h"
 #include "DB2CascFileSource.h"
-#include "DB2Meta.h"
 #include "Errors.h"
+#include "ExtractorDB2LoadInfo.h"
+#include "Memory.h"
+#include "StringConvert.h"
 #include "model.h"
 #include "StringFormat.h"
 #include "vmapexport.h"
+#include "VMapDefinitions.h"
 #include <CascLib.h>
 #include <algorithm>
 #include <cstdio>
+#include "advstd.h"
 
-bool ExtractSingleModel(std::string& fname)
+ExtractedModelData const* ExtractSingleModel(std::string& fname)
 {
-    if (fname.substr(fname.length() - 4, 4) == ".mdx")
-    {
-        fname.erase(fname.length() - 2, 2);
-        fname.append("2");
-    }
+    if (fname.length() < 4)
+        return nullptr;
+
+    std::string_view extension = std::string_view(fname).substr(fname.length() - 4, 4);
+    if (StringEqualI(extension, ".mdx"sv) || StringEqualI(extension, ".mdl"sv))
+        fname.replace(fname.length() - 2, 2, "2");
 
     std::string originalName = fname;
 
-    char* name = GetPlainName((char*)fname.c_str());
-    FixNameCase(name, strlen(name));
-    FixNameSpaces(name, strlen(name));
+    fname = GetPlainName(fname);
+    NormalizeFileName(fname);
 
-    std::string output(szWorkDirWmo);
-    output += "/";
-    output += name;
+    auto [model, shouldExtract] = BeginModelExtraction(fname);
+    if (!shouldExtract)
+    {
+        model->Wait();
+        return model->State.load(std::memory_order::relaxed) == ExtractedModelData::Ok ? model : nullptr;
+    }
 
-    if (FileExists(output.c_str()))
-        return true;
+    auto stateGuard = Trinity::make_unique_ptr_with_deleter<&ExtractedModelData::Fail>(model);
 
     Model mdl(originalName);
     if (!mdl.open())
-        return false;
+        return nullptr;
 
-    return mdl.ConvertToVMAPModel(output.c_str());
+    std::string output(szWorkDirWmo);
+    output += "/";
+    output += fname;
+
+    if (!mdl.ConvertToVMAPModel(output.c_str()))
+        return nullptr;
+
+    stateGuard->Complete();
+    return stateGuard.release();
 }
 
-extern CASC::StorageHandle CascStorage;
+extern std::shared_ptr<CASC::Storage> CascStorage;
 
-struct GameobjectDisplayInfoLoadInfo
+bool GetHeaderMagic(std::string const& fileName, std::array<char, 4>* magic)
 {
-    static DB2FileLoadInfo const* Instance()
-    {
-        static DB2FieldMeta const fields[] =
-        {
-            { false, FT_INT, "ID" },
-            { false, FT_INT, "FileDataID" },
-            { false, FT_FLOAT, "GeoBoxMinX" },
-            { false, FT_FLOAT, "GeoBoxMinY" },
-            { false, FT_FLOAT, "GeoBoxMinZ" },
-            { false, FT_FLOAT, "GeoBoxMaxX" },
-            { false, FT_FLOAT, "GeoBoxMaxY" },
-            { false, FT_FLOAT, "GeoBoxMaxZ" },
-            { false, FT_FLOAT, "OverrideLootEffectScale" },
-            { false, FT_FLOAT, "OverrideNameScale" },
-            { false, FT_SHORT, "ObjectEffectPackageID" },
-        };
-        static char const* types = "ifffh";
-        static uint8 const arraySizes[5] = { 1, 6, 1, 1, 1 };
-        static DB2FieldDefault const fieldDefaults[5] = { uint32(0), float(0), float(0), float(0), uint16(0) };
-        static DB2Meta const meta(-1, 5, 0x9F2098D1, types, arraySizes, fieldDefaults);
-        static DB2FileLoadInfo const loadInfo(&fields[0], std::extent<decltype(fields)>::value, &meta);
-        return &loadInfo;
-    }
-};
-
-enum ModelTypes : uint32
-{
-    MODEL_MD20 = '02DM',
-    MODEL_MD21 = '12DM',
-    MODEL_WMO  = 'MVER'
-};
-
-bool GetHeaderMagic(std::string const& fileName, uint32* magic)
-{
-    *magic = 0;
-    CASC::FileHandle file = CASC::OpenFile(CascStorage, fileName.c_str(), CASC_LOCALE_ALL);
+    *magic = { };
+    std::unique_ptr<CASC::File> file(CascStorage->OpenFile(fileName.c_str(), CASC_LOCALE_ALL_WOW));
     if (!file)
         return false;
 
-    DWORD bytesRead = 0;
-    if (!CASC::ReadFile(file, magic, 4, &bytesRead) || bytesRead != 4)
+    uint32 bytesToRead = uint32(magic->size() * sizeof(std::remove_pointer_t<decltype(magic)>::value_type));
+    uint32 bytesRead = 0;
+    if (!file->ReadFile(magic->data(), bytesToRead, &bytesRead) || bytesRead != bytesToRead)
         return false;
 
     return true;
@@ -109,11 +89,15 @@ void ExtractGameobjectModels()
 {
     printf("Extracting GameObject models...\n");
 
-    DB2CascFileSource source(CascStorage, "DBFilesClient\\GameObjectDisplayInfo.db2");
+    DB2CascFileSource source(CascStorage, GameobjectDisplayInfoLoadInfo::Instance.Meta->FileDataId);
     DB2FileLoader db2;
-    if (!db2.Load(&source, GameobjectDisplayInfoLoadInfo::Instance()))
+    try
     {
-        printf("Fatal error: Invalid GameObjectDisplayInfo.db2 file format!\n");
+        db2.Load(&source, &GameobjectDisplayInfoLoadInfo::Instance);
+    }
+    catch (std::exception const& e)
+    {
+        printf("Fatal error: Invalid GameObjectDisplayInfo.db2 file format!\n%s\n", e.what());
         exit(1);
     }
 
@@ -128,25 +112,38 @@ void ExtractGameobjectModels()
         return;
     }
 
+    fwrite(VMAP::RAW_VMAP_MAGIC, 1, 8, model_list);
+
     for (uint32 rec = 0; rec < db2.GetRecordCount(); ++rec)
     {
         DB2Record record = db2.GetRecord(rec);
+        if (!record)
+            continue;
+
         uint32 fileId = record.GetUInt32("FileDataID");
         if (!fileId)
             continue;
 
-        std::string fileName = Trinity::StringFormat("FILE%08X.xxx", fileId);
+        std::string fileName = Trinity::StringFormat("FILE{:08X}.xxx", fileId);
         bool result = false;
-        uint32 header;
-        if (!GetHeaderMagic(fileName, &header))
+        std::array<char, 4> headerRaw;
+        if (!GetHeaderMagic(fileName, &headerRaw))
             continue;
 
-        if (header == MODEL_WMO)
-            result = ExtractSingleWmo(fileName);
-        else if (header == MODEL_MD20 || header == MODEL_MD21)
-            result = ExtractSingleModel(fileName);
+        std::string_view header(headerRaw.data(), headerRaw.size());
+        if (header == "REVM")
+        {
+            ExtractedModelData const* wmo = ExtractSingleWmo(fileName);
+            result = wmo && wmo->HasCollision();
+        }
+        else if (header == "MD20" || header == "MD21")
+            result = ExtractSingleModel(fileName) != nullptr;
+        else if (header == "BLP2")
+            continue;   // broken db2 data
         else
-            ASSERT(false, "%s header: %d - %c%c%c%c", fileName.c_str(), header, (header >> 24) & 0xFF, (header >> 16) & 0xFF, (header >> 8) & 0xFF, header & 0xFF);
+            ABORT_MSG("%s header: 0x%X%X%X%X - " STRING_VIEW_FMT, fileName.c_str(),
+                uint32(headerRaw[3]), uint32(headerRaw[2]), uint32(headerRaw[1]), uint32(headerRaw[0]),
+                STRING_VIEW_FMT_ARG(header));
 
         if (result)
         {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,6 +22,8 @@
 #include "DatabaseEnvFwd.h"
 #include "GarrisonPackets.h"
 #include "Optional.h"
+#include "QuaternionData.h"
+#include "SharedDefines.h"
 #include <unordered_map>
 
 class GameObject;
@@ -32,7 +34,9 @@ struct GarrSiteLevelEntry;
 enum GarrisonType
 {
     GARRISON_TYPE_GARRISON      = 2,
-    GARRISON_TYPE_CLASS_ORDER   = 3
+    GARRISON_TYPE_CLASS_ORDER   = 3,
+    GARRISON_TYPE_WAR_CAMPAIGN  = 9,
+    GARRISON_TYPE_COVENANT      = 111
 };
 
 enum GarrisonFactionIndex
@@ -53,8 +57,11 @@ enum GarrisonFollowerFlags
 
 enum GarrisonFollowerType
 {
-    FOLLOWER_TYPE_GARRISON = 1,
-    FOLLOWER_TYPE_SHIPYARD = 2
+    FOLLOWER_TYPE_GARRISON      = 1,
+    FOLLOWER_TYPE_SHIPYARD      = 2,
+    FOLLOWER_TYPE_CLASS_ORDER   = 4,
+    FOLLOWER_TYPE_WAR_CAMPAIGN  = 11,
+    FOLLOWER_TYPE_COVENANT      = 123
 };
 
 enum GarrisonAbilityFlags
@@ -190,10 +197,11 @@ public:
     {
         GameObject* CreateGameObject(Map* map, GarrisonFactionIndex faction);
         void DeleteGameObject(Map* map);
-        void ClearBuildingInfo(Player* owner);
+        void ClearBuildingInfo(GarrisonType garrisonType, Player* owner);
         void SetBuildingInfo(WorldPackets::Garrison::GarrisonBuildingInfo const& buildingInfo, Player* owner);
 
         WorldPackets::Garrison::GarrisonPlotInfo PacketInfo;
+        QuaternionData Rotation;
         uint32 EmptyGameObjectId = 0;
         uint32 GarrSiteLevelPlotInstId = 0;
         Building BuildingInfo;
@@ -202,6 +210,7 @@ public:
     struct Follower
     {
         uint32 GetItemLevel() const;
+        bool HasAbility(uint32 garrAbilityId) const;
 
         WorldPackets::Garrison::GarrisonFollower PacketInfo;
     };
@@ -210,8 +219,8 @@ public:
 
     bool LoadFromDB(PreparedQueryResult garrison, PreparedQueryResult blueprints, PreparedQueryResult buildings,
         PreparedQueryResult followers, PreparedQueryResult abilities);
-    void SaveToDB(SQLTransaction trans);
-    static void DeleteFromDB(ObjectGuid::LowType ownerGuid, SQLTransaction trans);
+    void SaveToDB(CharacterDatabaseTransaction trans);
+    static void DeleteFromDB(ObjectGuid::LowType ownerGuid, CharacterDatabaseTransaction trans);
 
     bool Create(uint32 garrSiteId);
     void Delete();
@@ -220,7 +229,10 @@ public:
     void Enter() const;
     void Leave() const;
 
+    static constexpr GarrisonFactionIndex GetFaction(Team team) { return team == HORDE ? GARRISON_FACTION_INDEX_HORDE : GARRISON_FACTION_INDEX_ALLIANCE; }
     GarrisonFactionIndex GetFaction() const;
+    GarrisonType GetType() const { return GARRISON_TYPE_GARRISON; }
+    GarrSiteLevelEntry const* GetSiteLevel() const { return _siteLevel; }
 
     // Plots
     std::vector<Plot*> GetPlots();
@@ -230,6 +242,7 @@ public:
     // Buildings
     void LearnBlueprint(uint32 garrBuildingId);
     void UnlearnBlueprint(uint32 garrBuildingId);
+    bool HasBlueprint(uint32 garrBuildingId) const { return _knownBuildings.find(garrBuildingId) != _knownBuildings.end(); }
     void PlaceBuilding(uint32 garrPlotInstanceId, uint32 garrBuildingId);
     void CancelBuildingConstruction(uint32 garrPlotInstanceId);
     void ActivateBuilding(uint32 garrPlotInstanceId);
@@ -237,11 +250,21 @@ public:
     // Followers
     void AddFollower(uint32 garrFollowerId);
     Follower const* GetFollower(uint64 dbId) const;
+    template<typename Predicate>
+    uint32 CountFollowers(Predicate&& predicate) const
+    {
+        uint32 count = 0;
+        for (auto itr = _followers.begin(); itr != _followers.end(); ++itr)
+            if (predicate(itr->second))
+                ++count;
 
-    void SendInfo();
+        return count;
+    }
+
+    void BuildInfoPacket(WorldPackets::Garrison::GarrisonInfo& garrison) const;
     void SendRemoteInfo() const;
     void SendBlueprintAndSpecializationData();
-    void SendBuildingLandmarks(Player* receiver) const;
+    void SendMapData(Player* receiver) const;
 
     void ResetFollowerActivationLimit() { _followerActivationsRemainingToday = 1; }
 

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,54 +19,39 @@
 #include "Battleground.h"
 #include "Common.h"
 #include "Creature.h"
+#include "CreatureAI.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
 #include "GameObject.h"
 #include "GameObjectAI.h"
+#include "GameTime.h"
 #include "GossipDef.h"
 #include "Group.h"
 #include "Log.h"
+#include "Memory.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "PlayerChoice.h"
+#include "PoolMgr.h"
 #include "QuestDef.h"
+#include "QuestMgr.h"
 #include "QuestPackets.h"
+#include "QuestPools.h"
 #include "ReputationMgr.h"
 #include "ScriptMgr.h"
-#include "UnitAI.h"
 #include "World.h"
-#include "WorldPacket.h"
 
 void WorldSession::HandleQuestgiverStatusQueryOpcode(WorldPackets::Quest::QuestGiverStatusQuery& packet)
 {
-    uint32 questStatus = DIALOG_STATUS_NONE;
-
     Object* questGiver = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT);
     if (!questGiver)
     {
-        TC_LOG_INFO("network", "Error in CMSG_QUESTGIVER_STATUS_QUERY, called for non-existing questgiver (%s)", packet.QuestGiverGUID.ToString().c_str());
+        TC_LOG_INFO("network", "Error in CMSG_QUESTGIVER_STATUS_QUERY, called for non-existing questgiver ({})", packet.QuestGiverGUID.ToString());
         return;
     }
 
-    switch (questGiver->GetTypeId())
-    {
-        case TYPEID_UNIT:
-        {
-            TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_STATUS_QUERY for npc, %s", questGiver->GetGUID().ToString().c_str());
-            if (!questGiver->ToCreature()->IsHostileTo(_player)) // do not show quest status to enemies
-                questStatus = _player->GetQuestDialogStatus(questGiver);
-            break;
-        }
-        case TYPEID_GAMEOBJECT:
-        {
-            TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_STATUS_QUERY for GameObject %s", questGiver->GetGUID().ToString().c_str());
-            questStatus = _player->GetQuestDialogStatus(questGiver);
-            break;
-        }
-        default:
-            TC_LOG_ERROR("network", "QuestGiver called for unexpected type %u", questGiver->GetTypeId());
-            break;
-    }
+    QuestGiverStatus questStatus = _player->GetQuestDialogStatus(questGiver);
 
     //inform client about status of quest
     _player->PlayerTalkClass->SendQuestGiverStatus(questStatus, packet.QuestGiverGUID);
@@ -75,34 +59,36 @@ void WorldSession::HandleQuestgiverStatusQueryOpcode(WorldPackets::Quest::QuestG
 
 void WorldSession::HandleQuestgiverHelloOpcode(WorldPackets::Quest::QuestGiverHello& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_HELLO %s", packet.QuestGiverGUID.ToString().c_str());
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_HELLO {}", packet.QuestGiverGUID.ToString());
 
-    Creature* creature = GetPlayer()->GetNPCIfCanInteractWith(packet.QuestGiverGUID, UNIT_NPC_FLAG_QUESTGIVER);
+    Creature* creature = GetPlayer()->GetNPCIfCanInteractWith(packet.QuestGiverGUID, UNIT_NPC_FLAG_QUESTGIVER, UNIT_NPC_FLAG_2_NONE);
     if (!creature)
     {
-        TC_LOG_DEBUG("network", "WORLD: HandleQuestgiverHelloOpcode - %s not found or you can't interact with him.",
-            packet.QuestGiverGUID.ToString().c_str());
+        TC_LOG_DEBUG("network", "WORLD: HandleQuestgiverHelloOpcode - {} not found or you can't interact with him.",
+            packet.QuestGiverGUID.ToString());
         return;
     }
 
     // remove fake death
     if (GetPlayer()->HasUnitState(UNIT_STATE_DIED))
         GetPlayer()->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
-    // Stop the npc if moving
-    creature->StopMoving();
 
-    if (sScriptMgr->OnGossipHello(_player, creature))
+    // Stop the npc if moving
+    if (uint32 pause = creature->GetMovementTemplate().GetInteractionPauseTimer())
+        creature->PauseMovement(pause);
+    creature->SetHomePosition(creature->GetPosition());
+
+    _player->PlayerTalkClass->ClearMenus();
+    if (creature->AI()->OnGossipHello(_player))
         return;
 
-    _player->PrepareGossipMenu(creature, creature->GetCreatureTemplate()->GossipMenuId, true);
-    _player->SendPreparedGossip(creature);
-
-    creature->GetAI()->sGossipHello(_player);
+    _player->PrepareQuestMenu(creature->GetGUID());
+    _player->SendPreparedQuest(creature);
 }
 
 void WorldSession::HandleQuestgiverAcceptQuestOpcode(WorldPackets::Quest::QuestGiverAcceptQuest& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_ACCEPT_QUEST %s, quest = %u, startcheat = %u", packet.QuestGiverGUID.ToString().c_str(), packet.QuestID, packet.StartCheat);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_ACCEPT_QUEST {}, quest = {}, startcheat = {}", packet.QuestGiverGUID.ToString(), packet.QuestID, packet.StartCheat);
 
     Object* object;
     if (!packet.QuestGiverGUID.IsPlayer())
@@ -110,112 +96,108 @@ void WorldSession::HandleQuestgiverAcceptQuestOpcode(WorldPackets::Quest::QuestG
     else
         object = ObjectAccessor::FindPlayer(packet.QuestGiverGUID);
 
-#define CLOSE_GOSSIP_CLEAR_DIVIDER() \
-    do { \
-        _player->PlayerTalkClass->SendCloseGossip(); \
-        _player->SetDivider(ObjectGuid::Empty); \
-    } while (0)
+    auto CLOSE_GOSSIP_CLEAR_SHARING_INFO = Trinity::make_unique_ptr_with_deleter(_player, [](Player* player)
+    {
+        player->PlayerTalkClass->SendCloseGossip();
+        player->ClearQuestSharingInfo();
+    });
 
     // no or incorrect quest giver
     if (!object)
-    {
-        CLOSE_GOSSIP_CLEAR_DIVIDER();
         return;
-    }
 
     if (Player* playerQuestObject = object->ToPlayer())
     {
-        if ((_player->GetDivider().IsEmpty() && _player->GetDivider() != packet.QuestGiverGUID) || !playerQuestObject->CanShareQuest(packet.QuestID))
-        {
-            CLOSE_GOSSIP_CLEAR_DIVIDER();
+        if ((_player->GetPlayerSharingQuest().IsEmpty() && _player->GetPlayerSharingQuest() != packet.QuestGiverGUID) || !playerQuestObject->CanShareQuest(packet.QuestID))
             return;
-        }
+
         if (!_player->IsInSameRaidWith(playerQuestObject))
-        {
-            CLOSE_GOSSIP_CLEAR_DIVIDER();
             return;
-        }
     }
     else
     {
         if (!object->hasQuest(packet.QuestID))
-        {
-            CLOSE_GOSSIP_CLEAR_DIVIDER();
             return;
-        }
     }
 
     // some kind of WPE protection
     if (!_player->CanInteractWithQuestGiver(object))
-    {
-        CLOSE_GOSSIP_CLEAR_DIVIDER();
         return;
+
+    Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID);
+    if (!quest)
+        return;
+
+    // prevent cheating
+    if (!GetPlayer()->CanTakeQuest(quest, true))
+        return;
+
+    if (!_player->GetPlayerSharingQuest().IsEmpty())
+    {
+        Player* player = ObjectAccessor::FindPlayer(_player->GetPlayerSharingQuest());
+        if (player)
+        {
+            player->SendPushToPartyResponse(_player, QuestPushReason::Accepted);
+            _player->ClearQuestSharingInfo();
+        }
     }
 
-    if (Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID))
+    if (!_player->CanAddQuest(quest, true))
+        return;
+
+    (void)CLOSE_GOSSIP_CLEAR_SHARING_INFO.release();
+
+    _player->AddQuestAndCheckCompletion(quest, object);
+
+    if (quest->IsPushedToPartyOnAccept())
     {
-        // prevent cheating
-        if (!GetPlayer()->CanTakeQuest(quest, true))
+        if (Group* group = _player->GetGroup())
         {
-            CLOSE_GOSSIP_CLEAR_DIVIDER();
-            return;
-        }
-
-        if (!_player->GetDivider().IsEmpty())
-        {
-            Player* player = ObjectAccessor::FindPlayer(_player->GetDivider());
-            if (player)
+            for (GroupReference const& itr : group->GetMembers())
             {
-                player->SendPushToPartyResponse(_player, QUEST_PUSH_ACCEPTED);
-                _player->SetDivider(ObjectGuid::Empty);
-            }
-        }
+                Player* player = itr.GetSource();
 
-        if (_player->CanAddQuest(quest, true))
-        {
-            _player->AddQuestAndCheckCompletion(quest, object);
+                if (player == _player || !player->IsInMap(_player))     // not self and in same map
+                    continue;
 
-            if (quest->HasFlag(QUEST_FLAGS_PARTY_ACCEPT))
-            {
-                if (Group* group = _player->GetGroup())
+                if (player->CanTakeQuest(quest, true))
                 {
-                    for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
-                    {
-                        Player* player = itr->GetSource();
+                    player->SetQuestSharingInfo(_player->GetGUID(), quest->GetQuestId());
 
-                        if (!player || player == _player)     // not self
-                            continue;
+                    // need confirmation that any gossip window will close
+                    player->PlayerTalkClass->SendCloseGossip();
 
-                        if (player->CanTakeQuest(quest, true))
-                        {
-                            player->SetDivider(_player->GetGUID());
-
-                            // need confirmation that any gossip window will close
-                            player->PlayerTalkClass->SendCloseGossip();
-
-                            _player->SendQuestConfirmAccept(quest, player);
-                        }
-                    }
+                    _player->SendQuestConfirmAccept(quest, player);
                 }
             }
-
-            _player->PlayerTalkClass->SendCloseGossip();
-
-            if (quest->GetSrcSpell() > 0)
-                _player->CastSpell(_player, quest->GetSrcSpell(), true);
-
-            return;
         }
     }
 
-    CLOSE_GOSSIP_CLEAR_DIVIDER();
+    if (quest->HasFlag(QUEST_FLAGS_LAUNCH_GOSSIP_ACCEPT) && !quest->HasFlagEx(QUEST_FLAGS_EX_SUPPRESS_GOSSIP_ACCEPT))
+    {
+        auto launchGossip = [&](WorldObject* worldObject)
+        {
+            _player->PlayerTalkClass->ClearMenus();
+            _player->PrepareGossipMenu(worldObject, _player->GetGossipMenuForSource(worldObject), true);
+            _player->SendPreparedGossip(worldObject);
+            _player->PlayerTalkClass->GetInteractionData().IsLaunchedByQuest = true;
+        };
 
-#undef CLOSE_GOSSIP_CLEAR_DIVIDER
+        if (Creature* creature = object->ToCreature())
+            launchGossip(creature);
+        else if (GameObject* go = object->ToGameObject())
+            launchGossip(go);
+    }
+    // do not close gossip if quest accept script started a new interaction
+    else if (!_player->PlayerTalkClass->GetInteractionData().IsInteractingWith(object->GetGUID(), PlayerInteractionType::QuestGiver))
+        _player->PlayerTalkClass->GetInteractionData().IsLaunchedByQuest = true;
+    else
+        _player->PlayerTalkClass->SendCloseGossip();
 }
 
 void WorldSession::HandleQuestgiverQueryQuestOpcode(WorldPackets::Quest::QuestGiverQueryQuest& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_QUERY_QUEST QuestGiverGUID = %s, QuestID = %u, RespondToGiver = %u", packet.QuestGiverGUID.ToString().c_str(), packet.QuestID, packet.RespondToGiver);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_QUERY_QUEST QuestGiverGUID = {}, QuestID = {}, RespondToGiver = {}", packet.QuestGiverGUID.ToString(), packet.QuestID, packet.RespondToGiver);
 
     // Verify that the guid is valid and is a questgiver or involved in the requested quest
     Object* object = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT | TYPEMASK_ITEM);
@@ -233,7 +215,7 @@ void WorldSession::HandleQuestgiverQueryQuestOpcode(WorldPackets::Quest::QuestGi
         if (quest->IsAutoAccept() && _player->CanAddQuest(quest, true))
             _player->AddQuestAndCheckCompletion(quest, object);
 
-        if (quest->IsAutoComplete())
+        if (quest->IsTurnIn())
             _player->PlayerTalkClass->SendQuestGiverRequestItems(quest, object->GetGUID(), _player->CanCompleteQuest(quest->GetQuestId()), true);
         else
             _player->PlayerTalkClass->SendQuestGiverQuestDetails(quest, object->GetGUID(), true, false);
@@ -242,7 +224,7 @@ void WorldSession::HandleQuestgiverQueryQuestOpcode(WorldPackets::Quest::QuestGi
 
 void WorldSession::HandleQuestQueryOpcode(WorldPackets::Quest::QueryQuestInfo& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUEST_QUERY quest = %u", packet.QuestID);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUEST_QUERY quest = {}", packet.QuestID);
 
     if (Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID))
         _player->PlayerTalkClass->SendQuestQueryResponse(quest);
@@ -256,75 +238,113 @@ void WorldSession::HandleQuestQueryOpcode(WorldPackets::Quest::QueryQuestInfo& p
 
 void WorldSession::HandleQuestgiverChooseRewardOpcode(WorldPackets::Quest::QuestGiverChooseReward& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_CHOOSE_REWARD npc = %s, quest = %u, reward = %u", packet.QuestGiverGUID.ToString().c_str(), packet.QuestID, packet.ItemChoiceID);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_CHOOSE_REWARD npc = {}, quest = {}, reward = {}",
+        packet.QuestGiverGUID.ToString(), packet.QuestID, packet.Choice.Item.ItemID);
 
     Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID);
     if (!quest)
         return;
 
-    // This is Real Item Entry, not slot id as pre 5.x
-    if (packet.ItemChoiceID)
+    if (packet.Choice.Item.ItemID)
     {
-        ItemTemplate const* rewardProto = sObjectMgr->GetItemTemplate(packet.ItemChoiceID);
-        if (!rewardProto)
+        switch (packet.Choice.LootItemType)
         {
-            TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_QUESTGIVER_CHOOSE_REWARD: player %s (%s) tried to get invalid reward item (Item Entry: %u) for quest %u (possible packet-hacking detected)", _player->GetName().c_str(), _player->GetGUID().ToString().c_str(), packet.ItemChoiceID, packet.QuestID);
-            return;
-        }
-
-        bool itemValid = false;
-        for (uint32 i = 0; i < quest->GetRewChoiceItemsCount(); ++i)
-        {
-            if (quest->RewardChoiceItemId[i] && quest->RewardChoiceItemId[i] == uint32(packet.ItemChoiceID))
+            case LootItemType::Item:
             {
-                itemValid = true;
+                ItemTemplate const* rewardProto = sObjectMgr->GetItemTemplate(packet.Choice.Item.ItemID);
+                if (!rewardProto)
+                {
+                    TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_QUESTGIVER_CHOOSE_REWARD: player {} {} tried to get invalid reward item (Item Entry: {}) for quest {} (possible packet-hacking detected)",
+                        _player->GetName(), _player->GetGUID().ToString(), packet.Choice.Item.ItemID, packet.QuestID);
+                    return;
+                }
+
+                bool itemValid = false;
+                for (uint32 i = 0; i < quest->GetRewChoiceItemsCount(); ++i)
+                {
+                    if (quest->RewardChoiceItemId[i] && quest->RewardChoiceItemType[i] == LootItemType::Item && quest->RewardChoiceItemId[i] == packet.Choice.Item.ItemID)
+                    {
+                        itemValid = true;
+                        break;
+                    }
+                }
+
+                if (!itemValid && quest->GetQuestPackageID())
+                {
+                    if (std::vector<QuestPackageItemEntry const*> const* questPackageItems = sDB2Manager.GetQuestPackageItems(quest->GetQuestPackageID()))
+                    {
+                        for (QuestPackageItemEntry const* questPackageItem : *questPackageItems)
+                        {
+                            if (uint32(questPackageItem->ItemID) != packet.Choice.Item.ItemID)
+                                continue;
+
+                            if (_player->CanSelectQuestPackageItem(questPackageItem))
+                            {
+                                itemValid = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!itemValid)
+                    {
+                        if (std::vector<QuestPackageItemEntry const*> const* questPackageItems = sDB2Manager.GetQuestPackageItemsFallback(quest->GetQuestPackageID()))
+                        {
+                            for (QuestPackageItemEntry const* questPackageItem : *questPackageItems)
+                            {
+                                if (uint32(questPackageItem->ItemID) != packet.Choice.Item.ItemID)
+                                    continue;
+
+                                itemValid = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!itemValid)
+                {
+                    TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_QUESTGIVER_CHOOSE_REWARD: player {} {} tried to get reward item (Item Entry: {}) wich is not a reward for quest {} (possible packet-hacking detected)",
+                        _player->GetName(), _player->GetGUID().ToString(), packet.Choice.Item.ItemID, packet.QuestID);
+                    return;
+                }
                 break;
             }
-        }
-
-        if (!itemValid && quest->GetQuestPackageID())
-        {
-            if (std::vector<QuestPackageItemEntry const*> const* questPackageItems = sDB2Manager.GetQuestPackageItems(quest->GetQuestPackageID()))
+            case LootItemType::Currency:
             {
-                for (QuestPackageItemEntry const* questPackageItem : *questPackageItems)
+                if (!sCurrencyTypesStore.HasRecord(packet.Choice.Item.ItemID))
                 {
-                    if (questPackageItem->ItemID != uint32(packet.ItemChoiceID))
-                        continue;
+                    TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_QUESTGIVER_CHOOSE_REWARD: player {} {} tried to get invalid reward currency (Currency ID: {}) for quest {} (possible packet-hacking detected)",
+                        _player->GetName(), _player->GetGUID().ToString(), packet.Choice.Item.ItemID, packet.QuestID);
+                    return;
+                }
 
-                    if (_player->CanSelectQuestPackageItem(questPackageItem))
+                bool currencyValid = false;
+                for (uint32 i = 0; i < quest->GetRewChoiceItemsCount(); ++i)
+                {
+                    if (quest->RewardChoiceItemId[i] && quest->RewardChoiceItemType[i] == LootItemType::Currency && quest->RewardChoiceItemId[i] == packet.Choice.Item.ItemID)
                     {
-                        itemValid = true;
+                        currencyValid = true;
                         break;
                     }
                 }
-            }
 
-            if (!itemValid)
-            {
-                if (std::vector<QuestPackageItemEntry const*> const* questPackageItems = sDB2Manager.GetQuestPackageItemsFallback(quest->GetQuestPackageID()))
+                if (!currencyValid)
                 {
-                    for (QuestPackageItemEntry const* questPackageItem : *questPackageItems)
-                    {
-                        if (questPackageItem->ItemID != uint32(packet.ItemChoiceID))
-                            continue;
-
-                        itemValid = true;
-                        break;
-                    }
+                    TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_QUESTGIVER_CHOOSE_REWARD: player {} {} tried to get reward currency (Currency ID: {}) wich is not a reward for quest {} (possible packet-hacking detected)",
+                        _player->GetName(), _player->GetGUID().ToString(), packet.Choice.Item.ItemID, packet.QuestID);
+                    return;
                 }
+                break;
             }
-        }
-
-        if (!itemValid)
-        {
-            TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_QUESTGIVER_CHOOSE_REWARD: player %s (%s) tried to get reward item (Item Entry: %u) wich is not a reward for quest %u (possible packet-hacking detected)", _player->GetName().c_str(), _player->GetGUID().ToString().c_str(), packet.ItemChoiceID, packet.QuestID);
-            return;
+            default:
+                break;
         }
     }
 
     Object* object = _player;
 
-    if (!quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE))
+    if (!quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE))
     {
         object = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT|TYPEMASK_GAMEOBJECT);
         if (!object || !object->hasInvolvedQuest(packet.QuestID))
@@ -336,68 +356,18 @@ void WorldSession::HandleQuestgiverChooseRewardOpcode(WorldPackets::Quest::Quest
     }
 
     if ((!_player->CanSeeStartQuest(quest) &&  _player->GetQuestStatus(packet.QuestID) == QUEST_STATUS_NONE) ||
-        (_player->GetQuestStatus(packet.QuestID) != QUEST_STATUS_COMPLETE && !quest->IsAutoComplete()))
+        (_player->GetQuestStatus(packet.QuestID) != QUEST_STATUS_COMPLETE && !quest->IsTurnIn()))
     {
-        TC_LOG_ERROR("network", "Error in QUEST_STATUS_COMPLETE: player %s (%s) tried to complete quest %u, but is not allowed to do so (possible packet-hacking or high latency)",
-            _player->GetName().c_str(), _player->GetGUID().ToString().c_str(), packet.QuestID);
+        TC_LOG_ERROR("network", "Error in QUEST_STATUS_COMPLETE: player {} {} tried to complete quest {}, but is not allowed to do so (possible packet-hacking or high latency)",
+            _player->GetName(), _player->GetGUID().ToString(), packet.QuestID);
         return;
     }
 
-    if (_player->CanRewardQuest(quest, packet.ItemChoiceID, true))
+    if (_player->CanRewardQuest(quest, true)) // First, check if player is allowed to turn the quest in (all objectives completed). If not, we send players to the offer reward screen
     {
-        _player->RewardQuest(quest, packet.ItemChoiceID, object);
-
-        switch (object->GetTypeId())
+        if (_player->CanRewardQuest(quest, packet.Choice.LootItemType, packet.Choice.Item.ItemID, true)) // Then check if player can receive the reward item (if inventory is not full, if player doesn't have too many unique items, and so on). If not, the client will close the gossip window
         {
-            case TYPEID_UNIT:
-            case TYPEID_PLAYER:
-            {
-                //For AutoSubmition was added plr case there as it almost same exclute AI script cases.
-                Creature* creatureQGiver = object->ToCreature();
-                if (!creatureQGiver || !sScriptMgr->OnQuestReward(_player, creatureQGiver, quest, packet.ItemChoiceID))
-                {
-                    // Send next quest
-                    if (Quest const* nextQuest = _player->GetNextQuest(packet.QuestGiverGUID, quest))
-                    {
-                        // Only send the quest to the player if the conditions are met
-                        if (_player->CanTakeQuest(nextQuest, false))
-                        {
-                            if (nextQuest->IsAutoAccept() && _player->CanAddQuest(nextQuest, true))
-                                _player->AddQuestAndCheckCompletion(nextQuest, object);
-
-                            _player->PlayerTalkClass->SendQuestGiverQuestDetails(nextQuest, packet.QuestGiverGUID, true, false);
-                        }
-                    }
-
-                    if (creatureQGiver)
-                        creatureQGiver->GetAI()->sQuestReward(_player, quest, packet.ItemChoiceID);
-                }
-                break;
-            }
-            case TYPEID_GAMEOBJECT:
-            {
-                GameObject* questGiver = object->ToGameObject();
-                if (!sScriptMgr->OnQuestReward(_player, questGiver, quest, packet.ItemChoiceID))
-                {
-                    // Send next quest
-                    if (Quest const* nextQuest = _player->GetNextQuest(packet.QuestGiverGUID, quest))
-                    {
-                        // Only send the quest to the player if the conditions are met
-                        if (_player->CanTakeQuest(nextQuest, false))
-                        {
-                            if (nextQuest->IsAutoAccept() && _player->CanAddQuest(nextQuest, true))
-                                _player->AddQuestAndCheckCompletion(nextQuest, object);
-
-                            _player->PlayerTalkClass->SendQuestGiverQuestDetails(nextQuest, packet.QuestGiverGUID, true, false);
-                        }
-                    }
-
-                    questGiver->AI()->QuestReward(_player, quest, packet.ItemChoiceID);
-                }
-                break;
-            }
-            default:
-                break;
+            _player->RewardQuest(quest, packet.Choice.LootItemType, packet.Choice.Item.ItemID, object);
         }
     }
     else
@@ -406,15 +376,22 @@ void WorldSession::HandleQuestgiverChooseRewardOpcode(WorldPackets::Quest::Quest
 
 void WorldSession::HandleQuestgiverRequestRewardOpcode(WorldPackets::Quest::QuestGiverRequestReward& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_REQUEST_REWARD npc = %s, quest = %u", packet.QuestGiverGUID.ToString().c_str(), packet.QuestID);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_REQUEST_REWARD npc = {}, quest = {}", packet.QuestGiverGUID.ToString(), packet.QuestID);
 
-    Object* object = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT);
-    if (!object || !object->hasInvolvedQuest(packet.QuestID))
+    Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID);
+    if (!quest)
         return;
 
-    // some kind of WPE protection
-    if (!_player->CanInteractWithQuestGiver(object))
-        return;
+    if (!quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE))
+    {
+        Object* object = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT);
+        if (!object || !object->hasInvolvedQuest(packet.QuestID))
+            return;
+
+        // some kind of WPE protection
+        if (!_player->CanInteractWithQuestGiver(object))
+            return;
+    }
 
     if (_player->CanCompleteQuest(packet.QuestID))
         _player->CompleteQuest(packet.QuestID);
@@ -422,13 +399,13 @@ void WorldSession::HandleQuestgiverRequestRewardOpcode(WorldPackets::Quest::Ques
     if (_player->GetQuestStatus(packet.QuestID) != QUEST_STATUS_COMPLETE)
         return;
 
-    if (Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID))
+    if (quest)
         _player->PlayerTalkClass->SendQuestGiverOfferReward(quest, packet.QuestGiverGUID, true);
 }
 
 void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemoveQuest& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTLOG_REMOVE_QUEST slot = %u", packet.Entry);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTLOG_REMOVE_QUEST slot = {}", packet.Entry);
 
     if (packet.Entry < MAX_QUEST_LOG_SIZE)
     {
@@ -440,9 +417,16 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemove
             Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
             QuestStatus oldStatus = _player->GetQuestStatus(questId);
 
+            _player->RemoveActiveQuest(questId);
+
             if (quest)
             {
-                if (quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_TIMED))
+                if (quest->HasFlagEx(QUEST_FLAGS_EX_NO_ABANDON_ONCE_BEGUN))
+                    for (QuestObjective const& objective : quest->Objectives)
+                        if (_player->IsQuestObjectiveComplete(packet.Entry, quest, objective))
+                            return;
+
+                if (quest->GetLimitTime())
                     _player->RemoveTimedQuest(questId);
 
                 if (quest->HasFlag(QUEST_FLAGS_FLAGS_PVP))
@@ -450,20 +434,19 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemove
                     _player->pvpInfo.IsHostile = _player->pvpInfo.IsInHostileArea || _player->HasPvPForcingQuest();
                     _player->UpdatePvPState();
                 }
-
             }
 
+            _player->SendForceSpawnTrackingUpdate(questId);
             _player->TakeQuestSourceItem(questId, true); // remove quest src item from player
             _player->AbandonQuest(questId); // remove all quest items player received before abandoning quest. Note, this does not remove normal drop items that happen to be quest requirements.
-            _player->RemoveActiveQuest(questId);
-            _player->RemoveCriteriaTimer(CRITERIA_TIMED_TYPE_QUEST, questId);
+            _player->DespawnPersonalSummonsForQuest(questId);
 
-            TC_LOG_INFO("network", "%s abandoned quest %u", _player->GetGUID().ToString().c_str(), questId);
+            TC_LOG_INFO("network", "Player {} abandoned quest {}", _player->GetGUID().ToString(), questId);
 
             if (sWorld->getBoolConfig(CONFIG_QUEST_ENABLE_QUEST_TRACKER)) // check if Quest Tracker is enabled
             {
                 // prepare Quest Tracker datas
-                PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_QUEST_TRACK_ABANDON_TIME);
+                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_QUEST_TRACK_ABANDON_TIME);
                 stmt->setUInt32(0, questId);
                 stmt->setUInt64(1, _player->GetGUID().GetCounter());
 
@@ -477,57 +460,52 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemove
                 sScriptMgr->OnQuestStatusChange(_player, quest, oldStatus, QUEST_STATUS_NONE);
         }
 
-        _player->SetQuestSlot(packet.Entry, 0);
-
-        _player->UpdateCriteria(CRITERIA_TYPE_QUEST_ABANDONED, 1);
+        _player->UpdateCriteria(CriteriaType::AbandonAnyQuest, 1);
     }
 }
 
 void WorldSession::HandleQuestConfirmAccept(WorldPackets::Quest::QuestConfirmAccept& packet)
 {
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUEST_CONFIRM_ACCEPT questId = %u", packet.QuestID);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUEST_CONFIRM_ACCEPT questId = {}", packet.QuestID);
 
-    if (Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID))
-    {
-        if (!quest->HasFlag(QUEST_FLAGS_PARTY_ACCEPT))
-            return;
+    if (_player->GetSharedQuestID() != uint32(packet.QuestID))
+        return;
 
-        Player* originalPlayer = ObjectAccessor::FindPlayer(_player->GetDivider());
-        if (!originalPlayer)
-            return;
+    _player->ClearQuestSharingInfo();
+    Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID);
+    if (!quest)
+        return;
 
-        if (!_player->IsInSameRaidWith(originalPlayer))
-            return;
+    Player* originalPlayer = ObjectAccessor::FindPlayer(_player->GetPlayerSharingQuest());
+    if (!originalPlayer)
+        return;
 
-        if (!originalPlayer->IsActiveQuest(packet.QuestID))
-            return;
+    if (!_player->IsInSameRaidWith(originalPlayer))
+        return;
 
-        if (!_player->CanTakeQuest(quest, true))
-            return;
+    if (!originalPlayer->IsActiveQuest(packet.QuestID))
+        return;
 
-        if (_player->CanAddQuest(quest, true))
-        {
-            _player->AddQuestAndCheckCompletion(quest, NULL); // NULL, this prevent DB script from duplicate running
+    if (!_player->CanTakeQuest(quest, true))
+        return;
 
-            if (quest->GetSrcSpell() > 0)
-                _player->CastSpell(_player, quest->GetSrcSpell(), true);
-        }
-    }
+    if (!_player->CanAddQuest(quest, true))
+        return;
 
-    _player->SetDivider(ObjectGuid::Empty);
+    _player->AddQuestAndCheckCompletion(quest, nullptr); // NULL, this prevent DB script from duplicate running
+
+    if (quest->GetSrcSpell() > 0)
+        _player->CastSpell(_player, quest->GetSrcSpell(), true);
 }
 
 void WorldSession::HandleQuestgiverCompleteQuest(WorldPackets::Quest::QuestGiverCompleteQuest& packet)
 {
     bool autoCompleteMode = packet.FromScript; // 0 - standart complete quest mode with npc, 1 - auto-complete mode
 
-    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_COMPLETE_QUEST npc = %s, questId = %u self-complete: %u", packet.QuestGiverGUID.ToString().c_str(), packet.QuestID, autoCompleteMode ? 1 : 0);
+    TC_LOG_DEBUG("network", "WORLD: Received CMSG_QUESTGIVER_COMPLETE_QUEST npc = {}, questId = {} self-complete: {}", packet.QuestGiverGUID.ToString(), packet.QuestID, autoCompleteMode ? 1 : 0);
 
     Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID);
     if (!quest)
-        return;
-
-    if (autoCompleteMode && !quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE))
         return;
 
     Object* object = nullptr;
@@ -539,7 +517,7 @@ void WorldSession::HandleQuestgiverCompleteQuest(WorldPackets::Quest::QuestGiver
     if (!object)
         return;
 
-    if (!autoCompleteMode)
+    if (!quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE))
     {
         if (!object->hasInvolvedQuest(packet.QuestID))
             return;
@@ -557,13 +535,10 @@ void WorldSession::HandleQuestgiverCompleteQuest(WorldPackets::Quest::QuestGiver
 
     if (!_player->CanSeeStartQuest(quest) && _player->GetQuestStatus(packet.QuestID) == QUEST_STATUS_NONE)
     {
-        TC_LOG_ERROR("entities.player.cheat", "Possible hacking attempt: Player %s [%s] tried to complete quest [entry: %u] without being in possession of the quest!",
-            _player->GetName().c_str(), _player->GetGUID().ToString().c_str(), packet.QuestID);
+        TC_LOG_ERROR("entities.player.cheat", "Possible hacking attempt: Player {} [{}] tried to complete quest [entry: {}] without being in possession of the quest!",
+            _player->GetName(), _player->GetGUID().ToString(), packet.QuestID);
         return;
     }
-
-    if (Battleground* bg = _player->GetBattleground())
-        bg->HandleQuestComplete(packet.QuestID, _player);
 
     if (_player->GetQuestStatus(packet.QuestID) != QUEST_STATUS_COMPLETE)
     {
@@ -574,89 +549,196 @@ void WorldSession::HandleQuestgiverCompleteQuest(WorldPackets::Quest::QuestGiver
     }
     else
     {
-        if (quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_DELIVER))                  // some items required
+        if (quest->HasQuestObjectiveType(QUEST_OBJECTIVE_ITEM))                  // some items required
             _player->PlayerTalkClass->SendQuestGiverRequestItems(quest, packet.QuestGiverGUID, _player->CanRewardQuest(quest, false), false);
         else                                            // no items required
             _player->PlayerTalkClass->SendQuestGiverOfferReward(quest, packet.QuestGiverGUID, true);
     }
 }
 
-void WorldSession::HandlePushQuestToParty(WorldPackets::Quest::PushQuestToParty& packet)
+void WorldSession::HandleQuestgiverCloseQuest(WorldPackets::Quest::QuestGiverCloseQuest& questGiverCloseQuest)
 {
-    if (!_player->CanShareQuest(packet.QuestID))
+    if (_player->FindQuestSlot(questGiverCloseQuest.QuestID) >= MAX_QUEST_LOG_SIZE)
         return;
 
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questGiverCloseQuest.QuestID);
+    if (!quest)
+        return;
+
+    sScriptMgr->OnQuestAcknowledgeAutoAccept(_player, quest);
+}
+
+void WorldSession::HandlePushQuestToParty(WorldPackets::Quest::PushQuestToParty& packet)
+{
     Quest const* quest = sObjectMgr->GetQuestTemplate(packet.QuestID);
     if (!quest)
         return;
 
-    Player * const sender = GetPlayer();
+    Player* const sender = GetPlayer();
+
+    if (!_player->CanShareQuest(packet.QuestID))
+    {
+        sender->SendPushToPartyResponse(sender, QuestPushReason::NotAllowed);
+        return;
+    }
+
+    // in pool and not currently available (wintergrasp weekly, dalaran weekly) - can't share
+    if (!sQuestPoolMgr->IsQuestActive(packet.QuestID))
+    {
+        sender->SendPushToPartyResponse(sender, QuestPushReason::NotDaily);
+        return;
+    }
 
     Group* group = sender->GetGroup();
     if (!group)
-        return;
-
-    for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
     {
-        Player* receiver = itr->GetSource();
+        sender->SendPushToPartyResponse(sender, QuestPushReason::NotInParty);
+        return;
+    }
 
-        if (!receiver || receiver == sender)
+    for (GroupReference const& itr : group->GetMembers())
+    {
+        Player* receiver = itr.GetSource();
+
+        if (receiver == sender)
             continue;
 
-        if (!receiver->SatisfyQuestStatus(quest, false))
+        if (!receiver->GetPlayerSharingQuest().IsEmpty())
         {
-            sender->SendPushToPartyResponse(receiver, QUEST_PUSH_ONQUEST);
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Busy);
             continue;
         }
 
-        if (receiver->GetQuestStatus(packet.QuestID) == QUEST_STATUS_COMPLETE)
+        if (!receiver->IsAlive())
         {
-            sender->SendPushToPartyResponse(receiver, QUEST_PUSH_ALREADY_DONE);
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Dead);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::DeadToRecipient, quest);
+            continue;
+        }
+
+        switch (receiver->GetQuestStatus(packet.QuestID))
+        {
+            case QUEST_STATUS_REWARDED:
+            {
+                sender->SendPushToPartyResponse(receiver, QuestPushReason::AlreadyDone);
+                receiver->SendPushToPartyResponse(sender, QuestPushReason::AlreadyDoneToRecipient, quest);
+                continue;
+            }
+            case QUEST_STATUS_INCOMPLETE:
+            case QUEST_STATUS_COMPLETE:
+            {
+                sender->SendPushToPartyResponse(receiver, QuestPushReason::OnQuest);
+                receiver->SendPushToPartyResponse(sender, QuestPushReason::OnQuestToRecipient, quest);
+                continue;
+            }
+            default:
+                break;
+        }
+
+        if (!receiver->SatisfyQuestLog(false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::LogFull);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::LogFullToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestDay(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::AlreadyDone);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::AlreadyDoneToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestMinLevel(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::LowLevel);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::LowLevelToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestMaxLevel(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::HighLevel);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::HighLevelToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestClass(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Class);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::ClassToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestRace(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Race);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::RaceToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestMinReputation(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::LowFaction);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::LowFactionToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestMaxReputation(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::HighFaction);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::HighFactionToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestDependentQuests(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Prerequisite);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::PrerequisiteToRecipient, quest);
+            continue;
+        }
+
+        if (!receiver->SatisfyQuestExpansion(quest, false))
+        {
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Expansion);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::ExpansionToRecipient, quest);
             continue;
         }
 
         if (!receiver->CanTakeQuest(quest, false))
         {
-            sender->SendPushToPartyResponse(receiver, QUEST_PUSH_INVALID);
+            sender->SendPushToPartyResponse(receiver, QuestPushReason::Invalid);
+            receiver->SendPushToPartyResponse(sender, QuestPushReason::InvalidToRecipient, quest);
             continue;
         }
 
-        if (!receiver->SatisfyQuestLog(false))
-        {
-            sender->SendPushToPartyResponse(receiver, QUEST_PUSH_LOG_FULL);
-            continue;
-        }
+        sender->SendPushToPartyResponse(receiver, QuestPushReason::Success);
 
-        if (!receiver->GetDivider().IsEmpty())
-        {
-            sender->SendPushToPartyResponse(receiver, QUEST_PUSH_BUSY);
-            continue;
-        }
-
-        sender->SendPushToPartyResponse(receiver, QUEST_PUSH_SUCCESS);
-
-        if (quest->IsAutoAccept() && receiver->CanAddQuest(quest, true) && receiver->CanTakeQuest(quest, true))
-            receiver->AddQuestAndCheckCompletion(quest, sender);
-
-        if (quest->IsAutoComplete() && quest->IsRepeatable() && !quest->IsDailyOrWeekly())
+        if (quest->IsTurnIn() && quest->IsRepeatable() && !quest->IsDailyOrWeekly())
             receiver->PlayerTalkClass->SendQuestGiverRequestItems(quest, sender->GetGUID(), receiver->CanCompleteRepeatableQuest(quest), true);
         else
         {
-            receiver->SetDivider(sender->GetGUID());
+            receiver->SetQuestSharingInfo(sender->GetGUID(), quest->GetQuestId());
             receiver->PlayerTalkClass->SendQuestGiverQuestDetails(quest, receiver->GetGUID(), true, false);
+            if (quest->IsAutoAccept() && receiver->CanAddQuest(quest, true) && receiver->CanTakeQuest(quest, true))
+            {
+                receiver->AddQuestAndCheckCompletion(quest, sender);
+                sender->SendPushToPartyResponse(receiver, QuestPushReason::Accepted);
+                receiver->ClearQuestSharingInfo();
+            }
         }
     }
 }
 
 void WorldSession::HandleQuestPushResult(WorldPackets::Quest::QuestPushResult& packet)
 {
-    if (!_player->GetDivider().IsEmpty())
+    if (!_player->GetPlayerSharingQuest().IsEmpty())
     {
-        if (_player->GetDivider() == packet.SenderGUID)
-            if (Player* player = ObjectAccessor::FindPlayer(_player->GetDivider()))
+        if (_player->GetPlayerSharingQuest() == packet.SenderGUID)
+            if (Player* player = ObjectAccessor::FindPlayer(_player->GetPlayerSharingQuest()))
                 player->SendPushToPartyResponse(_player, static_cast<QuestPushReason>(packet.Result));
 
-        _player->SetDivider(ObjectGuid::Empty);
+        _player->ClearQuestSharingInfo();
     }
 }
 
@@ -667,7 +749,7 @@ void WorldSession::HandleQuestgiverStatusMultipleQuery(WorldPackets::Quest::Ques
 
 void WorldSession::HandleRequestWorldQuestUpdate(WorldPackets::Quest::RequestWorldQuestUpdate& /*packet*/)
 {
-    WorldPackets::Quest::WorldQuestUpdate response;
+    WorldPackets::Quest::WorldQuestUpdateResponse response;
 
     /// @todo: 7.x Has to be implemented
     //response.WorldQuestUpdates.push_back(WorldPackets::Quest::WorldQuestUpdateInfo(lastUpdate, questID, timer, variableID, value));
@@ -675,12 +757,35 @@ void WorldSession::HandleRequestWorldQuestUpdate(WorldPackets::Quest::RequestWor
     SendPacket(response.Write());
 }
 
-void WorldSession::HandlePlayerChoiceResponse(WorldPackets::Quest::ChoiceResponse& choiceResponse)
+void WorldSession::HandlePlayerChoiceResponse(WorldPackets::Quest::ChoiceResponse const& choiceResponse)
 {
-    if (_player->PlayerTalkClass->GetInteractionData().PlayerChoiceId != uint32(choiceResponse.ChoiceID))
+    PlayerChoiceData const* playerChoiceData = _player->PlayerTalkClass->GetInteractionData().GetPlayerChoice();
+    if (!playerChoiceData)
     {
-        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: %s tried to respond to invalid player choice %d (allowed %u) (possible packet-hacking detected)",
-            GetPlayerInfo().c_str(), choiceResponse.ChoiceID, _player->PlayerTalkClass->GetInteractionData().PlayerChoiceId);
+        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: {} tried to respond to invalid player choice {} (none allowed)",
+            GetPlayerInfo(), choiceResponse.ChoiceID);
+        return;
+    }
+
+    if (playerChoiceData->GetChoiceId() != uint32(choiceResponse.ChoiceID))
+    {
+        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: {} tried to respond to invalid player choice {} ({} allowed)",
+            GetPlayerInfo(), choiceResponse.ChoiceID, playerChoiceData->GetChoiceId());
+        return;
+    }
+
+    if (playerChoiceData->GetExpireTime() && playerChoiceData->GetExpireTime() < GameTime::GetSystemTime())
+    {
+        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: {} tried to respond to expired player choice {})",
+            GetPlayerInfo(), choiceResponse.ChoiceID);
+        return;
+    }
+
+    Optional<uint32> responseId = playerChoiceData->FindIdByClientIdentifier(choiceResponse.ResponseIdentifier);
+    if (!responseId)
+    {
+        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: {} tried to select invalid player choice response identifier {}",
+            GetPlayerInfo(), choiceResponse.ResponseIdentifier);
         return;
     }
 
@@ -688,50 +793,128 @@ void WorldSession::HandlePlayerChoiceResponse(WorldPackets::Quest::ChoiceRespons
     if (!playerChoice)
         return;
 
-    PlayerChoiceResponse const* playerChoiceResponse = playerChoice->GetResponse(choiceResponse.ResponseID);
+    PlayerChoiceResponse const* playerChoiceResponse = playerChoice->GetResponse(*responseId);
     if (!playerChoiceResponse)
     {
-        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: %s tried to select invalid player choice response %d (possible packet-hacking detected)",
-            GetPlayerInfo().c_str(), choiceResponse.ResponseID);
+        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: {} tried to select invalid player choice response {}",
+            GetPlayerInfo(), *responseId);
         return;
     }
 
-    sScriptMgr->OnPlayerChoiceResponse(GetPlayer(), choiceResponse.ChoiceID, choiceResponse.ResponseID);
-
-    if (playerChoiceResponse->Reward)
+    if (playerChoiceResponse->Flags.HasFlag(PlayerChoiceResponseFlags::DisabledButton | PlayerChoiceResponseFlags::DisabledOption | PlayerChoiceResponseFlags::HideButtonShowText))
     {
-        if (playerChoiceResponse->Reward->TitleId)
-            _player->SetTitle(sCharTitlesStore.AssertEntry(playerChoiceResponse->Reward->TitleId), false);
+        TC_LOG_ERROR("entities.player.cheat", "Error in CMSG_CHOICE_RESPONSE: {} tried to select disabled player choice response {}",
+            GetPlayerInfo(), *responseId);
+        return;
+    }
 
-        if (playerChoiceResponse->Reward->PackageId)
-            _player->RewardQuestPackage(playerChoiceResponse->Reward->PackageId);
+    sScriptMgr->OnPlayerChoiceResponse(ObjectAccessor::GetWorldObject(*_player, _player->PlayerTalkClass->GetInteractionData().SourceGuid), _player,
+        playerChoice, playerChoiceResponse, choiceResponse.ResponseIdentifier);
+}
 
-        if (playerChoiceResponse->Reward->SkillLineId && _player->HasSkill(playerChoiceResponse->Reward->SkillLineId))
-            _player->UpdateSkillPro(playerChoiceResponse->Reward->SkillLineId, 1000, playerChoiceResponse->Reward->SkillPointCount);
+void WorldSession::HandleUiMapQuestLinesRequest(WorldPackets::Quest::UiMapQuestLinesRequest& uiMapQuestLinesRequest)
+{
+    UiMapEntry const* uiMap = sUiMapStore.LookupEntry(uiMapQuestLinesRequest.UiMapID);
+    if (!uiMap)
+        return;
 
-        if (playerChoiceResponse->Reward->HonorPointCount)
-            _player->AddHonorXP(playerChoiceResponse->Reward->HonorPointCount);
+    WorldPackets::Quest::UiMapQuestLinesResponse response;
+    response.UiMapID = uiMap->ID;
 
-        if (playerChoiceResponse->Reward->Money)
-            _player->ModifyMoney(playerChoiceResponse->Reward->Money, false);
-
-        if (playerChoiceResponse->Reward->Xp)
-            _player->GiveXP(playerChoiceResponse->Reward->Xp, nullptr, 0.0f);
-
-        for (PlayerChoiceResponseRewardItem const& item : playerChoiceResponse->Reward->Items)
+    if (std::vector<uint32> const* questLines = sObjectMgr->GetUiMapQuestLinesList(uiMap->ID))
+    {
+        for (uint32 questLineId : *questLines)
         {
-            ItemPosCountVec dest;
-            if (_player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, item.Id, item.Quantity) == EQUIP_ERR_OK)
+            std::span<QuestLineXQuestEntry const* const> questLineQuests = QuestMgr::GetQuestsForQuestLine(questLineId);
+            if (questLineQuests.empty())
+                continue;
+
+            bool isQuestLineCompleted = true;
+            for (QuestLineXQuestEntry const* questLineQuest : questLineQuests)
             {
-                Item* newItem = _player->StoreNewItem(dest, item.Id, true, GenerateItemRandomPropertyId(item.Id), {}, 0, item.BonusListIDs);
-                _player->SendNewItem(newItem, item.Quantity, true, false);
+                if (Quest const* quest = sObjectMgr->GetQuestTemplate(questLineQuest->QuestID))
+                {
+                    if (_player->CanTakeQuest(quest, false))
+                        response.QuestLineXQuestIDs.push_back(questLineQuest->ID);
+
+                    if (isQuestLineCompleted && !_player->GetQuestRewardStatus(questLineQuest->QuestID))
+                        isQuestLineCompleted = false;
+                }
+            }
+
+            if (!isQuestLineCompleted)
+                response.QuestLineIDs.push_back(questLineId);
+        }
+    }
+
+    if (std::vector<uint32> const* quests = sObjectMgr->GetUiMapQuestsList(uiMap->ID))
+    {
+        for (uint32 questId : *quests)
+            if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
+                if (_player->CanTakeQuest(quest, false))
+                    response.QuestIDs.push_back(questId);
+    }
+
+    SendPacket(response.Write());
+}
+
+void WorldSession::HandleSpawnTrackingUpdate(WorldPackets::Quest::SpawnTrackingUpdate& spawnTrackingUpdate)
+{
+    WorldPackets::Quest::QuestPOIUpdateResponse response;
+
+    auto spawnTypeForObjectType = [](TypeMask objectTypeMask) -> SpawnObjectType
+    {
+        if (objectTypeMask & TYPEMASK_UNIT)
+            return SPAWN_TYPE_CREATURE;
+        if (objectTypeMask & TYPEMASK_GAMEOBJECT)
+            return SPAWN_TYPE_GAMEOBJECT;
+
+        return NUM_SPAWN_TYPES;
+    };
+
+    for (WorldPackets::Quest::SpawnTrackingRequestInfo const& requestInfo : spawnTrackingUpdate.SpawnTrackingRequests)
+    {
+        WorldPackets::Quest::SpawnTrackingResponseInfo& responseInfo = response.SpawnTrackingResponses.emplace_back();
+        responseInfo.SpawnTrackingID = requestInfo.SpawnTrackingID;
+        responseInfo.ObjectID = requestInfo.ObjectID;
+
+        SpawnTrackingTemplateData const* spawnTrackingTemplateData = sObjectMgr->GetSpawnTrackingData(requestInfo.SpawnTrackingID);
+        QuestObjective const* activeQuestObjective = _player->GetActiveQuestObjectiveForSpawnTracking(requestInfo.SpawnTrackingID);
+
+        // Send phase info if map is the same or spawn tracking related quests are taken or completed
+        if (spawnTrackingTemplateData && (_player->GetMapId() == spawnTrackingTemplateData->MapId || activeQuestObjective))
+        {
+            responseInfo.PhaseID = spawnTrackingTemplateData->PhaseId;
+            responseInfo.PhaseGroupID = spawnTrackingTemplateData->PhaseGroup;
+            responseInfo.PhaseUseFlags = spawnTrackingTemplateData->PhaseUseFlags;
+
+            // Send spawn visibility data if available
+            SpawnObjectType spawnType = spawnTypeForObjectType(TypeMask(requestInfo.ObjectTypeMask));
+            if (spawnType != NUM_SPAWN_TYPES)
+            {
+                // There should only be one entity
+                for (auto const& [spawnTrackingId, data] : sObjectMgr->GetSpawnMetadataForSpawnTracking(requestInfo.SpawnTrackingID))
+                {
+                    SpawnData const* spawnData = data->ToSpawnData();
+                    if (!spawnData)
+                        continue;
+
+                    if (spawnData->id != uint32(requestInfo.ObjectID))
+                        continue;
+
+                    if (spawnType != data->type)
+                        continue;
+
+                    if (activeQuestObjective)
+                    {
+                        SpawnTrackingState state = _player->GetSpawnTrackingStateByObjectives(spawnTrackingId, data->spawnTrackingQuestObjectives);
+                        responseInfo.Visible = data->spawnTrackingStates[AsUnderlyingType(state)].Visible;
+                        break;
+                    }
+                }
             }
         }
-
-        for (PlayerChoiceResponseRewardEntry const& currency : playerChoiceResponse->Reward->Currency)
-            _player->ModifyCurrency(currency.Id, currency.Quantity);
-
-        for (PlayerChoiceResponseRewardEntry const& faction : playerChoiceResponse->Reward->Faction)
-            _player->GetReputationMgr().ModifyReputation(sFactionStore.AssertEntry(faction.Id), faction.Quantity);
     }
+
+    SendPacket(response.Write());
 }

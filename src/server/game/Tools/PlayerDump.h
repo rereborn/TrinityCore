@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,7 +20,7 @@
 
 #include "ObjectGuid.h"
 #include <string>
-#include <map>
+#include <iosfwd>
 #include <set>
 
 enum DumpTableType
@@ -31,7 +30,7 @@ enum DumpTableType
     DTT_CHAR_TABLE,     //                                  // character_achievement, character_achievement_progress,
                                                             // character_action, character_aura, character_homebind,
                                                             // character_queststatus, character_queststatus_rewarded, character_reputation,
-                                                            // character_spell, character_spell_cooldown, character_ticket, character_talent.
+                                                            // character_spell, character_spell_cooldown, character_ticket, character_talent,
                                                             // character_cuf_profiles
 
     DTT_CURRENCY,       //                                  // character_currency
@@ -39,6 +38,8 @@ enum DumpTableType
     DTT_EQSET_TABLE,    // <- guid                          // character_equipmentsets
 
     DTT_INVENTORY,      //    -> item guids collection      // character_inventory
+
+    DTT_CHAR_TRANSMOG,  // <- guid                          // character_transmog_outfits
 
     DTT_MAIL,           //    -> mail ids collection        // mail
                         //    -> item_text
@@ -51,6 +52,11 @@ enum DumpTableType
 
     DTT_ITEM_GIFT,      // <- item guids                    // character_gifts
 
+    DTT_ITEM_TABLE,     // <- item guids                    // item_instance_artifact, item_instance_artifact_powers, item_instance_azerite
+                                                            // item_instance_azerite_empowered, item_instance_azerite_milestone_power,
+                                                            // item_instance_azerite_unlocked_essence, item_instance_gems, item_instance_modifiers,
+                                                            // item_instance_transmog
+
     DTT_PET,            //    -> pet guids collection       // character_pet
     DTT_PET_TABLE       // <- pet guids                     // pet_aura, pet_spell, pet_spell_cooldown
 };
@@ -60,46 +66,59 @@ enum DumpReturn
     DUMP_SUCCESS,
     DUMP_FILE_OPEN_ERROR,
     DUMP_TOO_MANY_CHARS,
-    DUMP_UNEXPECTED_END,
     DUMP_FILE_BROKEN,
     DUMP_CHARACTER_DELETED
 };
 
+struct DumpTable;
+struct TableStruct;
+class StringTransaction;
+
 class TC_GAME_API PlayerDump
 {
     public:
-        typedef std::set<ObjectGuid::LowType> DumpGuidSet;
-        typedef std::map<ObjectGuid::LowType, ObjectGuid::LowType> DumpGuidMap;
+        PlayerDump(PlayerDump const&) = delete;
+        PlayerDump(PlayerDump&&) = delete;
+        PlayerDump& operator=(PlayerDump const&) = delete;
+        PlayerDump& operator=(PlayerDump&&) = delete;
+
+        static void InitializeTables();
 
     protected:
-        PlayerDump() { }
+        PlayerDump() = default;
+        ~PlayerDump() = default;
 };
 
-class TC_GAME_API PlayerDumpWriter : public PlayerDump
+class TC_GAME_API PlayerDumpWriter final : public PlayerDump
 {
     public:
-        PlayerDumpWriter() { }
+        PlayerDumpWriter();
 
         bool GetDump(ObjectGuid::LowType guid, std::string& dump);
-        DumpReturn WriteDump(std::string const& file, ObjectGuid::LowType guid);
+        DumpReturn WriteDumpToFile(std::string const& file, ObjectGuid::LowType guid);
+        DumpReturn WriteDumpToString(std::string& dump, ObjectGuid::LowType guid);
 
     private:
+        bool AppendTable(StringTransaction& trans, ObjectGuid::LowType guid, TableStruct const& tableStruct, DumpTable const& dumpTable);
+        void PopulateGuids(ObjectGuid::LowType guid);
 
-        bool DumpTable(std::string& dump, ObjectGuid::LowType guid, char const* tableFrom, char const* tableTo, DumpTableType type);
-        std::string GenerateWhereStr(char const* field, DumpGuidSet const& guids, DumpGuidSet::const_iterator& itr);
-        std::string GenerateWhereStr(char const* field, ObjectGuid::LowType guid);
+        std::set<uint32> _pets;
+        std::set<uint32> _mails;
+        std::set<ObjectGuid::LowType> _items;
 
-        DumpGuidSet pets;
-        DumpGuidSet mails;
-        DumpGuidSet items;
+        std::set<uint64> _itemSets;
 };
 
-class TC_GAME_API PlayerDumpReader : public PlayerDump
+class TC_GAME_API PlayerDumpReader final : public PlayerDump
 {
     public:
-        PlayerDumpReader() { }
+        PlayerDumpReader() = default;
 
-        DumpReturn LoadDump(std::string const& file, uint32 account, std::string name, ObjectGuid::LowType guid);
+        DumpReturn LoadDumpFromFile(std::string const& file, uint32 account, std::string name, ObjectGuid::LowType guid);
+        DumpReturn LoadDumpFromString(std::string const& dump, uint32 account, std::string name, ObjectGuid::LowType guid);
+
+    private:
+        DumpReturn LoadDump(std::istream& input, uint32 account, std::string name, ObjectGuid::LowType guid);
 };
 
 #endif

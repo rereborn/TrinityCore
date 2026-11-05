@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,14 +15,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#ifndef TRINITYCORE_INSPECT_PACKETS_H
+#define TRINITYCORE_INSPECT_PACKETS_H
 
 #include "Packet.h"
+#include "CharacterPackets.h"
+#include "DBCEnums.h"
 #include "ItemPacketsCommon.h"
 #include "ObjectGuid.h"
+#include "RaceMask.h"
 #include "SharedDefines.h"
+#include "TalentPackets.h"
+#include "TraitPacketsCommon.h"
 
 class Item;
+class Player;
 
 namespace WorldPackets
 {
@@ -31,7 +38,7 @@ namespace WorldPackets
         class Inspect final : public ClientPacket
         {
         public:
-            Inspect(WorldPacket&& packet) : ClientPacket(CMSG_INSPECT, std::move(packet)) { }
+            explicit Inspect(WorldPacket&& packet) : ClientPacket(CMSG_INSPECT, std::move(packet)) { }
 
             void Read() override;
 
@@ -42,8 +49,16 @@ namespace WorldPackets
         {
             InspectEnchantData(uint32 id, uint8 index) : Id(id), Index(index) { }
 
-            uint32 Id   = 0;
+            uint32 Id = 0;
             uint8 Index = 0;
+        };
+
+        struct AzeriteEssenceData
+        {
+            uint32 Index = 0;
+            uint32 AzeriteEssenceID = 0;
+            uint32 Rank = 0;
+            bool SlotUnlocked = false;
         };
 
         struct InspectItemData
@@ -56,6 +71,27 @@ namespace WorldPackets
             bool Usable = false;
             std::vector<InspectEnchantData> Enchants;
             std::vector<Item::ItemGemData> Gems;
+            std::vector<int32> AzeritePowers;
+            std::vector<AzeriteEssenceData> AzeriteEssences;
+        };
+
+        struct CharDisplayInfo
+        {
+            std::string Name;
+            uint8 GenderID = GENDER_NONE;
+            uint8 Race = RACE_NONE;
+            uint8 ClassID = CLASS_NONE;
+            std::vector<Character::ChrCustomizationChoice> Customizations;
+        };
+
+        struct PlayerModelDisplayInfo
+        {
+            ObjectGuid GUID;
+            int32 SpecializationID = 0;
+            CharDisplayInfo DisplayInfo;
+            std::vector<InspectItemData> Items;
+
+            void Initialize(Player const* player);
         };
 
         struct InspectGuildData
@@ -65,87 +101,64 @@ namespace WorldPackets
             int32 AchievementPoints = 0;
         };
 
+        struct PVPBracketData
+        {
+            int32 Rating = 0;
+            int32 RatingID = 0;
+            int32 Rank = 0;
+            int32 WeeklyPlayed = 0;
+            int32 WeeklyWon = 0;
+            int32 SeasonPlayed = 0;
+            int32 SeasonWon = 0;
+            int32 WeeklyBestRating = 0;
+            int32 LastWeeksBestRating = 0;
+            int32 Tier = 0;
+            int32 WeeklyBestTier = 0;
+            int32 SeasonBestRating = 0;
+            uint8 SeasonBestTierEnum = 0;
+            int32 RoundsSeasonPlayed = 0;
+            int32 RoundsSeasonWon = 0;
+            int32 RoundsWeeklyPlayed = 0;
+            int32 RoundsWeeklyWon = 0;
+            uint8 Bracket = 0;
+            bool Disqualified = false;
+        };
+
+        struct TraitInspectInfo
+        {
+            int32 PlayerLevel = 0;
+            int32 SpecID = 0;
+            Traits::TraitConfig ActiveCombatTraits;
+        };
+
         class InspectResult final : public ServerPacket
         {
         public:
-            InspectResult() : ServerPacket(SMSG_INSPECT_RESULT, 45) { }
+            explicit InspectResult() : ServerPacket(SMSG_INSPECT_RESULT, 4096) { }
 
             WorldPacket const* Write() override;
 
-            ObjectGuid InspecteeGUID;
-            std::vector<InspectItemData> Items;
+            PlayerModelDisplayInfo DisplayInfo;
             std::vector<uint16> Glyphs;
             std::vector<uint16> Talents;
-            std::vector<uint16> PvpTalents;
-            int32 ClassID = CLASS_NONE;
-            int32 GenderID = GENDER_NONE;
+            std::array<uint16, MAX_PVP_TALENT_SLOTS> PvpTalents = { };
             Optional<InspectGuildData> GuildData;
-            int32 SpecializationID = 0;
-        };
-
-        class RequestHonorStats final : public ClientPacket
-        {
-        public:
-            RequestHonorStats(WorldPacket&& packet) : ClientPacket(CMSG_REQUEST_HONOR_STATS, std::move(packet)) { }
-
-            void Read() override;
-
-            ObjectGuid TargetGUID;
-        };
-
-        class InspectHonorStats final : public ServerPacket
-        {
-        public:
-            InspectHonorStats() : ServerPacket(SMSG_INSPECT_HONOR_STATS, 25) { }
-
-            WorldPacket const* Write() override;
-
-            ObjectGuid PlayerGUID;
-            uint32 LifetimeHK     = 0;
-            uint16 YesterdayHK    = 0;
-            uint16 TodayHK        = 0;
+            std::array<PVPBracketData, 9> Bracket;
+            Optional<int32> AzeriteLevel;
+            int32 ItemLevel = 0;
+            uint32 LifetimeHK = 0;
+            uint32 HonorLevel = 0;
+            uint16 TodayHK = 0;
+            uint16 YesterdayHK = 0;
             uint8 LifetimeMaxRank = 0;
-        };
-
-        class InspectPVPRequest final : public ClientPacket
-        {
-        public:
-            InspectPVPRequest(WorldPacket&& packet) : ClientPacket(CMSG_INSPECT_PVP, std::move(packet)) { }
-
-            void Read() override;
-
-            ObjectGuid InspectTarget;
-            uint32 InspectRealmAddress = 0;
-        };
-
-        struct PVPBracketData
-        {
-            int32 Rating           = 0;
-            int32 Rank             = 0;
-            int32 WeeklyPlayed     = 0;
-            int32 WeeklyWon        = 0;
-            int32 SeasonPlayed     = 0;
-            int32 SeasonWon        = 0;
-            int32 WeeklyBestRating = 0;
-            int32 Unk710           = 0;
-            uint8 Bracket          = 0;
-        };
-
-        class InspectPVPResponse final : public ServerPacket
-        {
-        public:
-            InspectPVPResponse() : ServerPacket(SMSG_INSPECT_PVP, 17) { }
-
-            WorldPacket const* Write() override;
-
-            std::vector<PVPBracketData> Bracket;
-            ObjectGuid ClientGUID;
+            Talent::ClassicTalentInfoUpdate TalentInfo;
+            TraitInspectInfo TraitsInfo;
         };
 
         class QueryInspectAchievements final : public ClientPacket
         {
         public:
-            QueryInspectAchievements(WorldPacket&& packet) : ClientPacket(CMSG_QUERY_INSPECT_ACHIEVEMENTS, std::move(packet)) { }
+            explicit QueryInspectAchievements(WorldPacket&& packet) : ClientPacket(CMSG_QUERY_INSPECT_ACHIEVEMENTS, std::move(packet)) { }
 
             void Read() override;
 
@@ -155,3 +168,5 @@ namespace WorldPackets
         /// RespondInspectAchievements in AchievementPackets
     }
 }
+
+#endif // TRINITYCORE_INSPECT_PACKETS_H

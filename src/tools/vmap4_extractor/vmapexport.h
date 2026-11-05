@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,24 +18,72 @@
 #ifndef VMAPEXPORT_H
 #define VMAPEXPORT_H
 
+#include "Define.h"
+#include <atomic>
+#include <memory>
 #include <string>
 
-enum ModelFlags
+// flags of each spawn
+enum ModelInstanceFlags
 {
-    MOD_M2 = 1,
-    MOD_WORLDSPAWN = 1<<1,
-    MOD_HAS_BOUND = 1<<2
+    MOD_HAS_BOUND       = 1 << 0,
+    MOD_PARENT_SPAWN    = 1 << 1,
+    MOD_PATH_ONLY       = 1 << 2
 };
 
+// flags of each model
+enum class ModelFlags : uint32
+{
+    None    = 0x0,
+    IsM2    = 0x1
+};
+
+struct WMODoodadData;
+
 extern const char * szWorkDirWmo;
-extern const char * szRawVMAPMagic;                         // vmap magic string for extracted raw vmap data
 
-bool FileExists(const char * file);
-void strToLower(char* str);
+uint32 GenerateUniqueObjectId(uint32 clientId, uint16 clientDoodadId, bool isWmo);
 
-bool ExtractSingleWmo(std::string& fname);
-bool ExtractSingleModel(std::string& fname);
+struct ExtractedModelData
+{
+    enum ExtractionState : uint8
+    {
+        InProgress,
+        Ok,
+        OkNoCollision,  // has no data by itself but its WMO doodads do
+        Failed
+    };
+
+    std::atomic<ExtractionState> State;
+    std::unique_ptr<WMODoodadData> Doodads;
+
+    void Wait()
+    {
+        State.wait(InProgress);
+    }
+
+    void Fail()
+    {
+        State.store(Failed);
+        State.notify_all();
+    }
+
+    void Complete(ExtractionState state = Ok)
+    {
+        State.store(state);
+        State.notify_all();
+    }
+
+    bool HasCollision() const { return State.load(std::memory_order::relaxed) == Ok; }
+};
+
+std::pair<ExtractedModelData*, bool> BeginModelExtraction(std::string const& outputName);
+
+ExtractedModelData const* ExtractSingleWmo(std::string& fname);
+ExtractedModelData const* ExtractSingleModel(std::string& fname);
 
 void ExtractGameobjectModels();
+
+bool IsLiquidIgnored(uint32 liquidTypeId);
 
 #endif

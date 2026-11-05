@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,39 +16,49 @@
  */
 
 #include "ScenePackets.h"
+#include "PacketOperators.h"
 
-WorldPacket const* WorldPackets::Scenes::PlayScene::Write()
+namespace WorldPackets::Scenes
+{
+WorldPacket const* PlayScene::Write()
 {
     _worldPacket << int32(SceneID);
-    _worldPacket << int32(PlaybackFlags);
-    _worldPacket << int32(SceneInstanceID);
+    _worldPacket << uint32(PlaybackFlags);
+    _worldPacket << uint32(SceneInstanceID);
     _worldPacket << int32(SceneScriptPackageID);
     _worldPacket << TransportGUID;
-    _worldPacket << Location.PositionXYZOStream();
+    _worldPacket << Location;
+    _worldPacket << int32(MovieID);
+    _worldPacket << Bits<1>(Encrypted);
+    _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Scenes::CancelScene::Write()
+WorldPacket const* CancelScene::Write()
 {
     _worldPacket << int32(SceneInstanceID);
 
     return &_worldPacket;
 }
 
-void WorldPackets::Scenes::SceneTriggerEvent::Read()
+void SceneTriggerEvent::Read()
 {
-    uint32 len = _worldPacket.ReadBits(6);
+    _worldPacket >> SizedString::BitsSize<6>(Event);
     _worldPacket >> SceneInstanceID;
-    Event = _worldPacket.ReadString(len);
+
+    _worldPacket >> SizedString::Data(Event);
 }
 
-void WorldPackets::Scenes::ScenePlaybackComplete::Read()
+void ScenePlaybackComplete::Read()
 {
     _worldPacket >> SceneInstanceID;
+    _worldPacket >> TimePassed;
 }
 
-void WorldPackets::Scenes::ScenePlaybackCanceled::Read()
+void ScenePlaybackCanceled::Read()
 {
     _worldPacket >> SceneInstanceID;
+    _worldPacket >> TimePassed;
+}
 }

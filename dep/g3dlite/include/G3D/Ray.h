@@ -34,9 +34,10 @@ private:
     Vector3 m_invDirection;
 
     
+#if 0
     /** The following are for the "ray slope" optimization from
       "Fast Ray / Axis-Aligned Bounding Box Overlap Tests using Ray Slopes" 
-      by Martin Eisemann, Thorsten Grosch, Stefan MÅ¸ller and Marcus Magnor
+      by Martin Eisemann, Thorsten Grosch, Stefan M√ºller and Marcus Magnor
       Computer Graphics Lab, TU Braunschweig, Germany and
       University of Koblenz-Landau, Germany */
     enum Classification {MMM, MMP, MPM, MPP, PMM, PMP, PPM, PPP, POO, MOO, OPO, OMO, OOP, OOM, OMM, OMP, OPM, OPP, MOM, MOP, POM, POP, MMO, MPO, PMO, PPO};    
@@ -48,6 +49,7 @@ private:
 
     /** Precomputed components */
     float c_xy, c_xz, c_yx, c_yz, c_zx, c_zy;
+#endif
 
 public:
     /** \param direction Assumed to have unit length */

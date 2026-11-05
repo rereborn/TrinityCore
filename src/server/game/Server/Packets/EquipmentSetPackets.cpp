@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,19 +16,22 @@
  */
 
 #include "EquipmentSetPackets.h"
+#include "PacketOperators.h"
 
-WorldPacket const* WorldPackets::EquipmentSet::EquipmentSetID::Write()
+namespace WorldPackets::EquipmentSet
 {
-    _worldPacket << uint64(GUID);
+WorldPacket const* EquipmentSetID::Write()
+{
     _worldPacket << int32(Type);
     _worldPacket << uint32(SetID);
+    _worldPacket << uint64(GUID);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::EquipmentSet::LoadEquipmentSet::Write()
+WorldPacket const* LoadEquipmentSet::Write()
 {
-    _worldPacket << uint32(SetData.size());
+    _worldPacket << Size<uint32>(SetData);
 
     for (EquipmentSetInfo::EquipmentSetData const* equipSet : SetData)
     {
@@ -37,7 +40,7 @@ WorldPacket const* WorldPackets::EquipmentSet::LoadEquipmentSet::Write()
         _worldPacket << uint32(equipSet->SetID);
         _worldPacket << uint32(equipSet->IgnoreMask);
 
-        for (std::size_t i = 0; i < EQUIPEMENT_SET_SLOTS; ++i)
+        for (std::size_t i = 0; i < EQUIPMENT_SET_SLOTS; ++i)
         {
             _worldPacket << equipSet->Pieces[i];
             _worldPacket << int32(equipSet->Appearances[i]);
@@ -45,29 +48,34 @@ WorldPacket const* WorldPackets::EquipmentSet::LoadEquipmentSet::Write()
 
         _worldPacket.append(equipSet->Enchants.data(), equipSet->Enchants.size());
 
-        _worldPacket.WriteBit(equipSet->AssignedSpecIndex != -1);
-        _worldPacket.WriteBits(equipSet->SetName.length(), 8);
-        _worldPacket.WriteBits(equipSet->SetIcon.length(), 9);
+        _worldPacket << int32(equipSet->SecondaryShoulderApparanceID);
+        _worldPacket << int32(equipSet->SecondaryShoulderSlot);
+        _worldPacket << int32(equipSet->SecondaryWeaponAppearanceID);
+        _worldPacket << int32(equipSet->SecondaryWeaponSlot);
+
+        _worldPacket << OptionalInit(equipSet->AssignedSpecIndex);
+        _worldPacket << SizedString::BitsSize<8>(equipSet->SetName);
+        _worldPacket << SizedString::BitsSize<9>(equipSet->SetIcon);
         _worldPacket.FlushBits();
 
-        if (equipSet->AssignedSpecIndex != -1)
-            _worldPacket << int32(equipSet->AssignedSpecIndex);
+        if (equipSet->AssignedSpecIndex)
+            _worldPacket << int32(*equipSet->AssignedSpecIndex);
 
-        _worldPacket.WriteString(equipSet->SetName);
-        _worldPacket.WriteString(equipSet->SetIcon);
+        _worldPacket << SizedString::Data(equipSet->SetName);
+        _worldPacket << SizedString::Data(equipSet->SetIcon);
     }
 
     return &_worldPacket;
 }
 
-void WorldPackets::EquipmentSet::SaveEquipmentSet::Read()
+void SaveEquipmentSet::Read()
 {
-    Set.Type = EquipmentSetInfo::EquipmentSetType(_worldPacket.read<int32>());
+    _worldPacket >> As<int32>(Set.Type);
     _worldPacket >> Set.Guid;
     _worldPacket >> Set.SetID;
     _worldPacket >> Set.IgnoreMask;
 
-    for (uint8 i = 0; i < EQUIPEMENT_SET_SLOTS; ++i)
+    for (uint8 i = 0; i < EQUIPMENT_SET_SLOTS; ++i)
     {
         _worldPacket >> Set.Pieces[i];
         _worldPacket >> Set.Appearances[i];
@@ -76,28 +84,32 @@ void WorldPackets::EquipmentSet::SaveEquipmentSet::Read()
     _worldPacket >> Set.Enchants[0];
     _worldPacket >> Set.Enchants[1];
 
-    bool hasSpecIndex = _worldPacket.ReadBit();
+    _worldPacket >> Set.SecondaryShoulderApparanceID;
+    _worldPacket >> Set.SecondaryShoulderSlot;
+    _worldPacket >> Set.SecondaryWeaponAppearanceID;
+    _worldPacket >> Set.SecondaryWeaponSlot;
 
-    uint32 setNameLength = _worldPacket.ReadBits(8);
-    uint32 setIconLength = _worldPacket.ReadBits(9);
+    _worldPacket >> OptionalInit(Set.AssignedSpecIndex);
+    _worldPacket >> SizedString::BitsSize<8>(Set.SetName);
+    _worldPacket >> SizedString::BitsSize<9>(Set.SetIcon);
 
-    if (hasSpecIndex)
-        _worldPacket >> Set.AssignedSpecIndex;
+    if (Set.AssignedSpecIndex)
+        _worldPacket >> *Set.AssignedSpecIndex;
 
-    Set.SetName = _worldPacket.ReadString(setNameLength);
-    Set.SetIcon = _worldPacket.ReadString(setIconLength);
+    _worldPacket >> SizedString::Data(Set.SetName);
+    _worldPacket >> SizedString::Data(Set.SetIcon);
 }
 
-void WorldPackets::EquipmentSet::DeleteEquipmentSet::Read()
+void DeleteEquipmentSet::Read()
 {
     _worldPacket >> ID;
 }
 
-void WorldPackets::EquipmentSet::UseEquipmentSet::Read()
+void UseEquipmentSet::Read()
 {
     _worldPacket >> Inv;
 
-    for (uint8 i = 0; i < EQUIPEMENT_SET_SLOTS; ++i)
+    for (uint8 i = 0; i < EQUIPMENT_SET_SLOTS; ++i)
     {
         _worldPacket >> Items[i].Item;
         _worldPacket >> Items[i].ContainerSlot;
@@ -107,10 +119,11 @@ void WorldPackets::EquipmentSet::UseEquipmentSet::Read()
     _worldPacket >> GUID;
 }
 
-WorldPacket const* WorldPackets::EquipmentSet::UseEquipmentSetResult::Write()
+WorldPacket const* UseEquipmentSetResult::Write()
 {
+    _worldPacket << int32(Reason);
     _worldPacket << uint64(GUID);
-    _worldPacket << uint8(Reason);
 
     return &_worldPacket;
+}
 }

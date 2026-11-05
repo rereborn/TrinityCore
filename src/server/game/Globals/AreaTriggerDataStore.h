@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,17 +19,27 @@
 #define AreaTriggerDataStore_h__
 
 #include "Define.h"
+#include "FlatSet.h"
+#include "ObjectGuid.h"
 
 class AreaTriggerTemplate;
-class AreaTriggerMiscTemplate;
+class AreaTriggerCreateProperties;
+enum Difficulty : int16;
+struct AreaTriggerId;
+struct AreaTriggerSpawn;
+
+typedef AreaTriggerId AreaTriggerCreatePropertiesId;
 
 class TC_GAME_API AreaTriggerDataStore
 {
 public:
     void LoadAreaTriggerTemplates();
+    void LoadAreaTriggerSpawns();
 
-    AreaTriggerTemplate const* GetAreaTriggerTemplate(uint32 areaTriggerId) const;
-    AreaTriggerMiscTemplate const* GetAreaTriggerMiscTemplate(uint32 spellMiscValue) const;
+    Trinity::Containers::FlatSet<ObjectGuid::LowType> const* GetAreaTriggersForMapAndGrid(uint32 mapId, Difficulty difficulty, uint32 gridId) const;
+    AreaTriggerSpawn const* GetAreaTriggerSpawn(ObjectGuid::LowType spawnId) const;
+    AreaTriggerTemplate const* GetAreaTriggerTemplate(AreaTriggerId const& areaTriggerId) const;
+    AreaTriggerCreateProperties const* GetAreaTriggerCreateProperties(AreaTriggerCreatePropertiesId const& areaTriggerCreatePropertiesId) const;
 
     static AreaTriggerDataStore* Instance();
 };

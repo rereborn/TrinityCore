@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,48 +15,72 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ItemPacketsCommon_h__
-#define ItemPacketsCommon_h__
+#ifndef TRINITYCORE_ITEM_PACKETS_COMMON_H
+#define TRINITYCORE_ITEM_PACKETS_COMMON_H
 
-#include "Define.h"
+#include "ItemDefines.h"
 #include "PacketUtilities.h"
 #include "Optional.h"
 #include <vector>
 
 class ByteBuffer;
 class Item;
-struct ItemDynamicFieldGems;
 struct LootItem;
 struct VoidStorageItem;
+enum class ItemContext : uint8;
+
+namespace UF
+{
+    struct SocketedGem;
+}
 
 namespace WorldPackets
 {
     namespace Item
     {
-        struct ItemBonusInstanceData
+        struct ItemBonuses
         {
-            uint8 Context = 0;
+            ItemContext Context = ItemContext(0);
             std::vector<int32> BonusListIDs;
 
-            bool operator==(ItemBonusInstanceData const& r) const;
-            bool operator!=(ItemBonusInstanceData const& r) const { return !(*this == r); }
+            bool operator==(ItemBonuses const& r) const;
+        };
+
+        struct ItemMod
+        {
+            int32 Value = 0;
+            ItemModifier Type = MAX_ITEM_MODIFIERS;
+
+            friend bool operator==(ItemMod const& left, ItemMod const& right) = default;
+        };
+
+        struct ItemModList
+        {
+            Array<ItemMod, MAX_ITEM_MODIFIERS> Values;
+
+            bool operator==(ItemModList const& r) const;
         };
 
         struct ItemInstance
         {
             void Initialize(::Item const* item);
-            void Initialize(::ItemDynamicFieldGems const* gem);
+            void Initialize(UF::SocketedGem const* gem);
             void Initialize(::LootItem const& lootItem);
-            void Initialize(::VoidStorageItem const* voidItem);
 
             uint32 ItemID = 0;
-            uint32 RandomPropertiesSeed = 0;
-            uint32 RandomPropertiesID = 0;
-            Optional<ItemBonusInstanceData> ItemBonus;
-            Optional<CompactArray<int32>> Modifications;
+            Optional<ItemBonuses> ItemBonus;
+            ItemModList Modifications;
 
             bool operator==(ItemInstance const& r) const;
-            bool operator!=(ItemInstance const& r) const { return !(*this == r); }
+        };
+
+        struct ItemBonusKey
+        {
+            int32 ItemID = 0;
+            std::vector<int32> BonusListIDs;
+            std::vector<ItemMod> Modifications;
+
+            bool operator==(ItemBonusKey const& right) const;
         };
 
         struct ItemEnchantData
@@ -84,20 +108,27 @@ namespace WorldPackets
 
             std::vector<InvItem> Items;
         };
+
+        struct UiEventToast
+        {
+            int32 UiEventToastID = 0;
+            int32 Asset = 0;
+        };
+
+        ByteBuffer& operator<<(ByteBuffer& data, ItemEnchantData const& itemEnchantData);
+
+        ByteBuffer& operator<<(ByteBuffer& data, ItemGemData const& itemGemInstanceData);
+        ByteBuffer& operator>>(ByteBuffer& data, ItemGemData& itemGemInstanceData);
+
+        ByteBuffer& operator<<(ByteBuffer& data, ItemInstance const& itemInstance);
+        ByteBuffer& operator>>(ByteBuffer& data, ItemInstance& itemInstance);
+
+        ByteBuffer& operator<<(ByteBuffer& data, ItemBonusKey const& itemBonusKey);
+
+        ByteBuffer& operator>>(ByteBuffer& data, InvUpdate& invUpdate);
+
+        ByteBuffer& operator<<(ByteBuffer& data, UiEventToast const& uiEventToast);
     }
 }
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemBonusInstanceData const& itemBonusInstanceData);
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemBonusInstanceData& itemBonusInstanceData);
-
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemInstance const& itemInstance);
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemInstance& itemInstance);
-
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemEnchantData const& itemEnchantData);
-
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemGemData const& itemGemInstanceData);
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemGemData& itemGemInstanceData);
-
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::InvUpdate& invUpdate);
-
-#endif // ItemPacketsCommon_h__
+#endif // TRINITYCORE_ITEM_PACKETS_COMMON_H

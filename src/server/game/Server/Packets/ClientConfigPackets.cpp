@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,57 +16,66 @@
  */
 
 #include "ClientConfigPackets.h"
+#include "PacketOperators.h"
 
-WorldPacket const* WorldPackets::ClientConfig::AccountDataTimes::Write()
+namespace WorldPackets::ClientConfig
+{
+WorldPacket const* AccountDataTimes::Write()
 {
     _worldPacket << PlayerGuid;
-    _worldPacket << uint32(ServerTime);
-    _worldPacket.append(AccountTimes, NUM_ACCOUNT_DATA_TYPES);
+    _worldPacket << ServerTime;
+    for (Timestamp<> const& accountDataTime : AccountTimes)
+        _worldPacket << accountDataTime;
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::ClientConfig::ClientCacheVersion::Write()
+WorldPacket const* ClientCacheVersion::Write()
 {
     _worldPacket << uint32(CacheVersion);
 
     return &_worldPacket;
 }
 
-void WorldPackets::ClientConfig::RequestAccountData::Read()
+void RequestAccountData::Read()
 {
     _worldPacket >> PlayerGuid;
-    DataType = _worldPacket.ReadBits(3);
+    _worldPacket >> DataType;
 }
 
-WorldPacket const* WorldPackets::ClientConfig::UpdateAccountData::Write()
+WorldPacket const* UpdateAccountData::Write()
 {
-    _worldPacket << Player;
-    _worldPacket << uint32(Time);
+    _worldPacket << Time;
     _worldPacket << uint32(Size);
-    _worldPacket.WriteBits(DataType, 3);
-    _worldPacket << uint32(CompressedData.size());
-    _worldPacket.append(CompressedData);
+    _worldPacket << Player;
+    _worldPacket << int32(DataType);
+    _worldPacket << Bytes::Size<uint32>(CompressedData);
+    _worldPacket << Bytes::Data(CompressedData);
 
     return &_worldPacket;
 }
 
-void WorldPackets::ClientConfig::UserClientUpdateAccountData::Read()
+void UserClientUpdateAccountData::Read()
 {
-    _worldPacket >> PlayerGuid;
     _worldPacket >> Time;
     _worldPacket >> Size;
-    DataType = _worldPacket.ReadBits(3);
-
-    uint32 compressedSize = _worldPacket.read<uint32>();
-    if (compressedSize)
-    {
-        CompressedData.resize(compressedSize);
-        _worldPacket.read(CompressedData.contents(), compressedSize);
-    }
+    _worldPacket >> PlayerGuid;
+    _worldPacket >> DataType;
+    _worldPacket >> Bytes::Size<uint32>(CompressedData);
+    _worldPacket >> Bytes::Data(CompressedData);
 }
 
-void WorldPackets::ClientConfig::SetAdvancedCombatLogging::Read()
+WorldPacket const* UpdateAccountDataComplete::Write()
 {
-    Enable = _worldPacket.ReadBit();
+    _worldPacket << Player;
+    _worldPacket << int32(DataType);
+    _worldPacket << int32(Result);
+
+    return &_worldPacket;
+}
+
+void SetAdvancedCombatLogging::Read()
+{
+    _worldPacket >> Bits<1>(Enable);
+}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,61 +24,79 @@ EndScriptData */
 
 #include "ScriptMgr.h"
 #include "Chat.h"
+#include "ChatCommand.h"
 #include "Config.h"
+#include "DatabaseEnv.h"
+#include "DatabaseLoader.h"
+#include "GameTime.h"
 #include "GitRevision.h"
 #include "Language.h"
 #include "Log.h"
-#include "ObjectAccessor.h"
-#include "Player.h"
+#include "MySQLThreading.h"
 #include "RBAC.h"
+#include "RealmList.h"
+#include "UpdateTime.h"
 #include "Util.h"
+#include "VMapFactory.h"
+#include "VMapManager.h"
 #include "World.h"
 #include "WorldSession.h"
+#include <boost/filesystem/directory.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <openssl/crypto.h>
+#include <openssl/opensslv.h>
+#include <numeric>
+
+#if TRINITY_COMPILER_IS_GCC
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+using namespace Trinity::ChatCommands;
 
 class server_commandscript : public CommandScript
 {
 public:
     server_commandscript() : CommandScript("server_commandscript") { }
 
-    std::vector<ChatCommand> GetCommands() const override
+    std::span<ChatCommandBuilder const> GetCommands() const override
     {
-        static std::vector<ChatCommand> serverIdleRestartCommandTable =
+        static ChatCommandTable serverIdleRestartCommandTable =
         {
             { "cancel", rbac::RBAC_PERM_COMMAND_SERVER_IDLERESTART_CANCEL, true, &HandleServerShutDownCancelCommand, "" },
             { ""   ,    rbac::RBAC_PERM_COMMAND_SERVER_IDLERESTART,        true, &HandleServerIdleRestartCommand,    "" },
         };
 
-        static std::vector<ChatCommand> serverIdleShutdownCommandTable =
+        static ChatCommandTable serverIdleShutdownCommandTable =
         {
             { "cancel", rbac::RBAC_PERM_COMMAND_SERVER_IDLESHUTDOWN_CANCEL, true, &HandleServerShutDownCancelCommand, "" },
             { ""   ,    rbac::RBAC_PERM_COMMAND_SERVER_IDLESHUTDOWN,        true, &HandleServerIdleShutDownCommand,   "" },
         };
 
-        static std::vector<ChatCommand> serverRestartCommandTable =
+        static ChatCommandTable serverRestartCommandTable =
         {
             { "cancel", rbac::RBAC_PERM_COMMAND_SERVER_RESTART_CANCEL, true, &HandleServerShutDownCancelCommand, "" },
             { "force",  rbac::RBAC_PERM_COMMAND_SERVER_RESTART_FORCE,  true, &HandleServerForceRestartCommand,   "" },
             { ""   ,    rbac::RBAC_PERM_COMMAND_SERVER_RESTART,        true, &HandleServerRestartCommand,        "" },
         };
 
-        static std::vector<ChatCommand> serverShutdownCommandTable =
+        static ChatCommandTable serverShutdownCommandTable =
         {
             { "cancel", rbac::RBAC_PERM_COMMAND_SERVER_SHUTDOWN_CANCEL, true, &HandleServerShutDownCancelCommand, "" },
             { "force",  rbac::RBAC_PERM_COMMAND_SERVER_SHUTDOWN_FORCE,  true, &HandleServerForceShutDownCommand,  "" },
             { ""   ,    rbac::RBAC_PERM_COMMAND_SERVER_SHUTDOWN,        true, &HandleServerShutDownCommand,       "" },
         };
 
-        static std::vector<ChatCommand> serverSetCommandTable =
+        static ChatCommandTable serverSetCommandTable =
         {
-            { "difftime", rbac::RBAC_PERM_COMMAND_SERVER_SET_DIFFTIME, true, &HandleServerSetDiffTimeCommand, "" },
             { "loglevel", rbac::RBAC_PERM_COMMAND_SERVER_SET_LOGLEVEL, true, &HandleServerSetLogLevelCommand, "" },
             { "motd",     rbac::RBAC_PERM_COMMAND_SERVER_SET_MOTD,     true, &HandleServerSetMotdCommand,     "" },
             { "closed",   rbac::RBAC_PERM_COMMAND_SERVER_SET_CLOSED,   true, &HandleServerSetClosedCommand,   "" },
         };
 
-        static std::vector<ChatCommand> serverCommandTable =
+        static ChatCommandTable serverCommandTable =
         {
             { "corpses",      rbac::RBAC_PERM_COMMAND_SERVER_CORPSES,      true, &HandleServerCorpsesCommand, "" },
+            { "debug",        rbac::RBAC_PERM_COMMAND_SERVER_DEBUG,        true, &HandleServerDebugCommand,   "" },
             { "exit",         rbac::RBAC_PERM_COMMAND_SERVER_EXIT,         true, &HandleServerExitCommand,    "" },
             { "idlerestart",  rbac::RBAC_PERM_COMMAND_SERVER_IDLERESTART,  true, nullptr,                     "", serverIdleRestartCommandTable },
             { "idleshutdown", rbac::RBAC_PERM_COMMAND_SERVER_IDLESHUTDOWN, true, nullptr,                     "", serverIdleShutdownCommandTable },
@@ -90,7 +108,7 @@ public:
             { "set",          rbac::RBAC_PERM_COMMAND_SERVER_SET,          true, nullptr,                     "", serverSetCommandTable },
         };
 
-        static std::vector<ChatCommand> commandTable =
+        static ChatCommandTable commandTable =
         {
             { "server", rbac::RBAC_PERM_COMMAND_SERVER, true, nullptr, "", serverCommandTable },
         };
@@ -104,6 +122,136 @@ public:
         return true;
     }
 
+    static bool HandleServerDebugCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        std::string dbPortOutput;
+
+        if (std::shared_ptr<Realm const> currentRealm = sRealmList->GetCurrentRealm())
+            dbPortOutput = Trinity::StringFormat("Realmlist (Realm Id: {}) configured in port {}", currentRealm->Id.Realm, currentRealm->Port);
+        else
+            dbPortOutput = Trinity::StringFormat("Realm Id: {} not found in `realmlist` table. Please check your setup", sRealmList->GetCurrentRealmId().Realm);
+
+        handler->PSendSysMessage("%s", GitRevision::GetFullVersion());
+        handler->PSendSysMessage("Using SSL version: %s (library: %s)", OPENSSL_VERSION_TEXT, SSLeay_version(SSLEAY_VERSION));
+        handler->PSendSysMessage("Using Boost version: %i.%i.%i", BOOST_VERSION / 100000, BOOST_VERSION / 100 % 1000, BOOST_VERSION % 100);
+        handler->PSendSysMessage("Using MySQL version: %u", MySQL::GetLibraryVersion());
+        handler->PSendSysMessage("Using CMake version: %s", GitRevision::GetCMakeVersion());
+
+        handler->PSendSysMessage("Compiled on: %s", GitRevision::GetHostOSVersion());
+
+        uint32 updateFlags = sConfigMgr->GetIntDefault("Updates.EnableDatabases", DatabaseLoader::DATABASE_NONE);
+        if (!updateFlags)
+            handler->SendSysMessage("Automatic database updates are disabled for all databases!");
+        else
+        {
+            static char const* const databaseNames[] =
+            {
+                "Auth",
+                "Characters",
+                "World",
+                "Hotfixes"
+            };
+            static size_t constexpr databaseCount = std::extent<decltype(databaseNames)>::value;
+
+            std::string availableUpdateDatabases;
+            for (uint32 i = 0; i < databaseCount; ++i)
+            {
+                if (!(updateFlags & (1 << i)))
+                    continue;
+
+                availableUpdateDatabases += databaseNames[i];
+                if (i != databaseCount - 1)
+                    availableUpdateDatabases += ", ";
+            }
+
+            handler->PSendSysMessage("Automatic database updates are enabled for the following databases: %s", availableUpdateDatabases.c_str());
+        }
+
+        handler->PSendSysMessage("Worldserver listening connections on port %u", sWorld->getIntConfig(CONFIG_PORT_WORLD));
+        handler->PSendSysMessage("%s", dbPortOutput.c_str());
+
+        bool vmapIndoorCheck = sWorld->getBoolConfig(CONFIG_VMAP_INDOOR_CHECK);
+        bool vmapLOSCheck = VMAP::VMapFactory::createOrGetVMapManager()->isLineOfSightCalcEnabled();
+        bool vmapHeightCheck = VMAP::VMapFactory::createOrGetVMapManager()->isHeightCalcEnabled();
+
+        bool mmapEnabled = sWorld->getBoolConfig(CONFIG_ENABLE_MMAPS);
+
+        std::string dataDir = sWorld->GetDataPath();
+        std::vector<std::string> subDirs;
+        subDirs.emplace_back("maps");
+        if (vmapIndoorCheck || vmapLOSCheck || vmapHeightCheck)
+        {
+            handler->PSendSysMessage("VMAPs status: Enabled. LineOfSight: %i, getHeight: %i, indoorCheck: %i", vmapLOSCheck, vmapHeightCheck, vmapIndoorCheck);
+            subDirs.emplace_back("vmaps");
+        }
+        else
+            handler->SendSysMessage("VMAPs status: Disabled");
+
+        if (mmapEnabled)
+        {
+            handler->SendSysMessage("MMAPs status: Enabled");
+            subDirs.emplace_back("mmaps");
+        }
+        else
+            handler->SendSysMessage("MMAPs status: Disabled");
+
+        for (std::string const& subDir : subDirs)
+        {
+            boost::filesystem::path mapPath(dataDir);
+            mapPath /= subDir;
+
+            if (!boost::filesystem::exists(mapPath))
+            {
+                handler->PSendSysMessage("%s directory doesn't exist!. Using path: %s", subDir.c_str(), mapPath.generic_string().c_str());
+                continue;
+            }
+
+            auto end = boost::filesystem::recursive_directory_iterator();
+            std::size_t folderSize = std::accumulate(boost::filesystem::recursive_directory_iterator(mapPath), end, std::size_t(0), [](std::size_t val, boost::filesystem::directory_entry const& mapFile)
+            {
+                boost::system::error_code ec;
+                if (boost::filesystem::is_regular_file(mapFile.path(), ec) && !ec)
+                    val += boost::filesystem::file_size(mapFile.path(), ec);
+                return val;
+            });
+
+            handler->PSendSysMessage("%s directory located in %s. Total size: " SZFMTD " bytes", subDir.c_str(), mapPath.generic_string().c_str(), folderSize);
+        }
+
+        LocaleConstant defaultLocale = sWorld->GetDefaultDbcLocale();
+        uint32 availableLocalesMask = (1 << defaultLocale);
+
+        for (uint8 i = 0; i < TOTAL_LOCALES; ++i)
+        {
+            LocaleConstant locale = static_cast<LocaleConstant>(i);
+            if (locale == defaultLocale)
+                continue;
+
+            if (sWorld->GetAvailableDbcLocale(locale) != defaultLocale)
+                availableLocalesMask |= (1 << locale);
+        }
+
+        std::string availableLocales;
+        for (uint8 i = 0; i < TOTAL_LOCALES; ++i)
+        {
+            if (!(availableLocalesMask & (1 << i)))
+                continue;
+
+            availableLocales += localeNames[i];
+            if (i != TOTAL_LOCALES - 1)
+                availableLocales += " ";
+        }
+
+        handler->PSendSysMessage("Using %s DBC Locale as default. All available DBC locales: %s", localeNames[defaultLocale], availableLocales.c_str());
+
+        handler->PSendSysMessage("Using World DB: %s", sWorld->GetDBVersion());
+
+        handler->PSendSysMessage("LoginDatabase queue size: %zu", LoginDatabase.QueueSize());
+        handler->PSendSysMessage("CharacterDatabase queue size: %zu", CharacterDatabase.QueueSize());
+        handler->PSendSysMessage("WorldDatabase queue size: %zu", WorldDatabase.QueueSize());
+        return true;
+    }
+
     static bool HandleServerInfoCommand(ChatHandler* handler, char const* /*args*/)
     {
         uint32 playersNum           = sWorld->GetPlayerCount();
@@ -112,10 +260,10 @@ public:
         uint32 queuedClientsNum     = sWorld->GetQueuedSessionCount();
         uint32 maxActiveClientsNum  = sWorld->GetMaxActiveSessionCount();
         uint32 maxQueuedClientsNum  = sWorld->GetMaxQueuedSessionCount();
-        std::string uptime          = secsToTimeString(sWorld->GetUptime());
-        uint32 updateTime           = sWorld->GetUpdateTime();
+        std::string uptime          = secsToTimeString(GameTime::GetUptime());
+        uint32 updateTime           = sWorldUpdateTime.GetLastUpdateTime();
 
-        handler->SendSysMessage(GitRevision::GetFullVersion());
+        handler->PSendSysMessage("%s", GitRevision::GetFullVersion());
         handler->PSendSysMessage(LANG_CONNECTED_PLAYERS, playersNum, maxPlayersNum);
         handler->PSendSysMessage(LANG_CONNECTED_USERS, activeClientsNum, maxActiveClientsNum, queuedClientsNum, maxQueuedClientsNum);
         handler->PSendSysMessage(LANG_UPTIME, uptime.c_str());
@@ -281,39 +429,12 @@ public:
     }
 
     // Set the level of logging
-    static bool HandleServerSetLogLevelCommand(ChatHandler* /*handler*/, char const* args)
+    static bool HandleServerSetLogLevelCommand(ChatHandler* /*handler*/, std::string const& type, std::string const& name, int32 level)
     {
-        if (!*args)
+        if (name.empty() || level < 0 || (type != "a" && type != "l"))
             return false;
 
-        char* type = strtok((char*)args, " ");
-        char* name = strtok(nullptr, " ");
-        char* level = strtok(nullptr, " ");
-
-        if (!type || !name || !level || *name == '\0' || *level == '\0' || (*type != 'a' && *type != 'l'))
-            return false;
-
-        sLog->SetLogLevel(name, level, *type == 'l');
-        return true;
-    }
-
-    // set diff time record interval
-    static bool HandleServerSetDiffTimeCommand(ChatHandler* /*handler*/, char const* args)
-    {
-        if (!*args)
-            return false;
-
-        char* newTimeStr = strtok((char*)args, " ");
-        if (!newTimeStr)
-            return false;
-
-        int32 newTime = atoi(newTimeStr);
-        if (newTime < 0)
-            return false;
-
-        sWorld->SetRecordDiffInterval(newTime);
-        printf("Record diff every %i ms\n", newTime);
-
+        sLog->SetLogLevel(name, level, type == "l");
         return true;
     }
 

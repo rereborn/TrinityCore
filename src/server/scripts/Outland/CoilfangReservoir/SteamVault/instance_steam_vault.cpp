@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,41 +17,31 @@
 
 #include "ScriptMgr.h"
 #include "Creature.h"
+#include "CreatureAI.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
-#include "Log.h"
-#include "Map.h"
 #include "steam_vault.h"
 
-class go_main_chambers_access_panel : public GameObjectScript
+static constexpr ObjectData gameObjectData[] =
 {
-    public:
-        go_main_chambers_access_panel() : GameObjectScript("go_main_chambers_access_panel") { }
-
-        bool OnGossipHello(Player* /*player*/, GameObject* go) override
-        {
-            InstanceScript* instance = go->GetInstanceScript();
-            if (!instance)
-                return false;
-
-            if (go->GetEntry() == GO_ACCESS_PANEL_HYDRO && (instance->GetBossState(DATA_HYDROMANCER_THESPIA) == DONE || instance->GetBossState(DATA_HYDROMANCER_THESPIA) == SPECIAL))
-                instance->SetBossState(DATA_HYDROMANCER_THESPIA, SPECIAL);
-
-            if (go->GetEntry() == GO_ACCESS_PANEL_MEK && (instance->GetBossState(DATA_MEKGINEER_STEAMRIGGER) == DONE || instance->GetBossState(DATA_MEKGINEER_STEAMRIGGER) == SPECIAL))
-                instance->SetBossState(DATA_MEKGINEER_STEAMRIGGER, SPECIAL);
-
-            go->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
-            go->SetGoState(GO_STATE_ACTIVE);
-
-            return true;
-        }
+    { GO_ACCESS_PANEL_THESPIA,      DATA_ACCESS_PANEL_THESPIA     },
+    { GO_ACCESS_PANEL_STEAMRIGGER,  DATA_ACCESS_PANEL_STEAMRIGGER },
+    { GO_MAIN_CHAMBERS_DOOR,        DATA_MAIN_CHAMBERS_DOOR       }
 };
 
-ObjectData const gameObjectData[] =
+static constexpr ObjectData creatureData[] =
 {
-    { GO_ACCESS_PANEL_HYDRO, DATA_ACCESS_PANEL_HYDRO },
-    { GO_ACCESS_PANEL_MEK,   DATA_ACCESS_PANEL_MEK   },
-    { 0,                     0                       } // END
+    { NPC_HYDROMANCER_THESPIA,      DATA_HYDROMANCER_THESPIA   },
+    { NPC_MEKGINEER_STEAMRIGGER,    DATA_MEKGINEER_STEAMRIGGER },
+    { NPC_WARLORD_KALITHRESH,       DATA_WARLORD_KALITHRESH    },
+    { NPC_COILFANG_DOOR_CONTROLLER, DATA_DOOR_CONTROLLER       },
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_HYDROMANCER_THESPIA, {{ 1942 }} },
+    { DATA_MEKGINEER_STEAMRIGGER, {{ 1943 }} },
+    { DATA_WARLORD_KALITHRESH, {{ 1944 }} }
 };
 
 class instance_steam_vault : public InstanceMapScript
@@ -61,74 +51,26 @@ class instance_steam_vault : public InstanceMapScript
 
         struct instance_steam_vault_InstanceMapScript : public InstanceScript
         {
-            instance_steam_vault_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_steam_vault_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
-                LoadObjectData(nullptr, gameObjectData);
-
-                DistillerState       = 0;
-            }
-
-            void OnCreatureCreate(Creature* creature) override
-            {
-                switch (creature->GetEntry())
-                {
-                    case NPC_HYDROMANCER_THESPIA:
-                        ThespiaGUID = creature->GetGUID();
-                        break;
-                    case NPC_MEKGINEER_STEAMRIGGER:
-                        MekgineerGUID = creature->GetGUID();
-                        break;
-                    case NPC_WARLORD_KALITHRESH:
-                        KalithreshGUID = creature->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
+                LoadObjectData(creatureData, gameObjectData);
+                LoadDungeonEncounterData(encounters);
             }
 
             void OnGameObjectCreate(GameObject* go) override
             {
-                switch (go->GetEntry())
-                {
-                    case GO_MAIN_CHAMBERS_DOOR:
-                        MainChambersDoorGUID = go->GetGUID();
-                        break;
-                    default:
-                        break;
-                }
-
                 InstanceScript::OnGameObjectCreate(go);
-            }
 
-            ObjectGuid GetGuidData(uint32 type) const override
-            {
-                switch (type)
+                if (go->GetEntry() == GO_MAIN_CHAMBERS_DOOR)
                 {
-                    case DATA_HYDROMANCER_THESPIA:
-                        return ThespiaGUID;
-                    case DATA_MEKGINEER_STEAMRIGGER:
-                        return MekgineerGUID;
-                    case DATA_WARLORD_KALITHRESH:
-                        return KalithreshGUID;
-                    default:
-                        break;
+                    if (GetBossState(DATA_HYDROMANCER_THESPIA) == DONE && GetBossState(DATA_MEKGINEER_STEAMRIGGER) == DONE)
+                    {
+                        HandleGameObject(ObjectGuid::Empty, true, go);
+                        go->ActivateObject(GameObjectActions::MakeInert, 0);
+                    }
                 }
-                return ObjectGuid::Empty;
-            }
-
-            void SetData(uint32 type, uint32 data) override
-            {
-                if (type == DATA_DISTILLER)
-                    DistillerState = data;
-            }
-
-            uint32 GetData(uint32 type) const override
-            {
-                if (type == DATA_DISTILLER)
-                    return DistillerState;
-                return 0;
             }
 
             bool SetBossState(uint32 type, EncounterState state) override
@@ -140,27 +82,13 @@ class instance_steam_vault : public InstanceMapScript
                 {
                     case DATA_HYDROMANCER_THESPIA:
                         if (state == DONE)
-                            if (GameObject* panel = GetGameObject(DATA_ACCESS_PANEL_HYDRO))
-                                panel->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
-                        if (state == SPECIAL)
-                        {
-                            if (GetBossState(DATA_MEKGINEER_STEAMRIGGER) == SPECIAL)
-                                HandleGameObject(MainChambersDoorGUID, true);
-
-                            TC_LOG_DEBUG("scripts", "Instance Steamvault: Access panel used.");
-                        }
+                            if (GameObject* panel = GetGameObject(DATA_ACCESS_PANEL_THESPIA))
+                                panel->ActivateObject(GameObjectActions::MakeActive, 0);
                         break;
                     case DATA_MEKGINEER_STEAMRIGGER:
                         if (state == DONE)
-                            if (GameObject* panel = GetGameObject(DATA_ACCESS_PANEL_MEK))
-                                panel->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE);
-                        if (state == SPECIAL)
-                        {
-                            if (GetBossState(DATA_HYDROMANCER_THESPIA) == SPECIAL)
-                                HandleGameObject(MainChambersDoorGUID, true);
-
-                            TC_LOG_DEBUG("scripts", "Instance Steamvault: Access panel used.");
-                        }
+                            if (GameObject* panel = GetGameObject(DATA_ACCESS_PANEL_STEAMRIGGER))
+                                panel->ActivateObject(GameObjectActions::MakeActive, 0);
                         break;
                     default:
                         break;
@@ -168,14 +96,6 @@ class instance_steam_vault : public InstanceMapScript
 
                 return true;
             }
-
-        protected:
-            ObjectGuid ThespiaGUID;
-            ObjectGuid MekgineerGUID;
-            ObjectGuid KalithreshGUID;
-
-            ObjectGuid MainChambersDoorGUID;
-            uint8 DistillerState;
         };
 
         InstanceScript* GetInstanceScript(InstanceMap* map) const override
@@ -186,6 +106,5 @@ class instance_steam_vault : public InstanceMapScript
 
 void AddSC_instance_steam_vault()
 {
-    new go_main_chambers_access_panel();
     new instance_steam_vault();
 }

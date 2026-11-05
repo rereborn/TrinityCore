@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -52,6 +52,13 @@ struct GarrAbilities
 class TC_GAME_API GarrisonMgr
 {
 public:
+    GarrisonMgr();
+    GarrisonMgr(GarrisonMgr const&) = delete;
+    GarrisonMgr(GarrisonMgr&&) = delete;
+    GarrisonMgr& operator=(GarrisonMgr const&) = delete;
+    GarrisonMgr& operator=(GarrisonMgr&&) = delete;
+    ~GarrisonMgr();
+
     static GarrisonMgr& Instance();
 
     void Initialize();

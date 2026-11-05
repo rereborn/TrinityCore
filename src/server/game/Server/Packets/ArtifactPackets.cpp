@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,37 +16,40 @@
  */
 
 #include "ArtifactPackets.h"
+#include "PacketOperators.h"
 
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Artifact::ArtifactAddPower::ArtifactPowerChoice& artifactPowerChoice)
+namespace WorldPackets::Artifact
+{
+ByteBuffer& operator>>(ByteBuffer& data, ArtifactPowerChoice& artifactPowerChoice)
 {
     data >> artifactPowerChoice.ArtifactPowerID;
     data >> artifactPowerChoice.Rank;
     return data;
 }
 
-void WorldPackets::Artifact::ArtifactAddPower::Read()
+void ArtifactAddPower::Read()
 {
     _worldPacket >> ArtifactGUID;
     _worldPacket >> ForgeGUID;
-    PowerChoices.resize(_worldPacket.read<uint32>());
+    _worldPacket >> Size<uint32>(PowerChoices);
     for (ArtifactPowerChoice& artifactPowerChoice : PowerChoices)
         _worldPacket >> artifactPowerChoice;
 }
 
-void WorldPackets::Artifact::ArtifactSetAppearance::Read()
+void ArtifactSetAppearance::Read()
 {
     _worldPacket >> ArtifactGUID;
     _worldPacket >> ForgeGUID;
     _worldPacket >> ArtifactAppearanceID;
 }
 
-void WorldPackets::Artifact::ConfirmArtifactRespec::Read()
+void ConfirmArtifactRespec::Read()
 {
     _worldPacket >> ArtifactGUID;
     _worldPacket >> NpcGUID;
 }
 
-WorldPacket const* WorldPackets::Artifact::ArtifactForgeOpened::Write()
+WorldPacket const* OpenArtifactForge::Write()
 {
     _worldPacket << ArtifactGUID;
     _worldPacket << ForgeGUID;
@@ -54,7 +57,7 @@ WorldPacket const* WorldPackets::Artifact::ArtifactForgeOpened::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Artifact::ArtifactRespecConfirm::Write()
+WorldPacket const* ArtifactRespecPrompt::Write()
 {
     _worldPacket << ArtifactGUID;
     _worldPacket << NpcGUID;
@@ -62,10 +65,11 @@ WorldPacket const* WorldPackets::Artifact::ArtifactRespecConfirm::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Artifact::ArtifactXpGain::Write()
+WorldPacket const* ArtifactXpGain::Write()
 {
     _worldPacket << ArtifactGUID;
     _worldPacket << uint64(Amount);
 
     return &_worldPacket;
+}
 }

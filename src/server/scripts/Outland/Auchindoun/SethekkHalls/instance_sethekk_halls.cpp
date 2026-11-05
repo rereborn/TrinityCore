@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,19 +19,23 @@
 #include "Creature.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
-#include "Map.h"
 #include "sethekk_halls.h"
 
-DoorData const doorData[] =
+static constexpr DoorData doorData[] =
 {
-    { GO_IKISS_DOOR, DATA_TALON_KING_IKISS, DOOR_TYPE_PASSAGE },
-    { 0,             0,                     DOOR_TYPE_ROOM } // END
+    { GO_IKISS_DOOR, DATA_TALON_KING_IKISS, EncounterDoorBehavior::OpenWhenDone },
 };
 
-ObjectData const gameObjectData[] =
+static constexpr ObjectData gameObjectData[] =
 {
     { GO_TALON_KING_COFFER, DATA_TALON_KING_COFFER },
-    { 0,                    0                      } // END
+};
+
+static constexpr DungeonEncounterData encounters[] =
+{
+    { DATA_DARKWEAVER_SYTH, {{ 1903 }} },
+    { DATA_TALON_KING_IKISS, {{ 1902 }} },
+    { DATA_ANZU, {{ 1904 }} }
 };
 
 class instance_sethekk_halls : public InstanceMapScript
@@ -41,23 +45,13 @@ class instance_sethekk_halls : public InstanceMapScript
 
         struct instance_sethekk_halls_InstanceMapScript : public InstanceScript
         {
-            instance_sethekk_halls_InstanceMapScript(Map* map) : InstanceScript(map)
+            instance_sethekk_halls_InstanceMapScript(InstanceMap* map) : InstanceScript(map)
             {
                 SetHeaders(DataHeader);
                 SetBossNumber(EncounterCount);
                 LoadDoorData(doorData);
-                LoadObjectData(nullptr, gameObjectData);
-            }
-
-            void OnCreatureCreate(Creature* creature) override
-            {
-                if (creature->GetEntry() == NPC_ANZU)
-                {
-                    if (GetBossState(DATA_ANZU) == DONE)
-                        creature->DisappearAndDie();
-                    else
-                        SetBossState(DATA_ANZU, IN_PROGRESS);
-                }
+                LoadObjectData({}, gameObjectData);
+                LoadDungeonEncounterData(encounters);
             }
 
             bool SetBossState(uint32 type, EncounterState state) override
@@ -74,7 +68,7 @@ class instance_sethekk_halls : public InstanceMapScript
                             ///              gameobject should have GO_DYNFLAG_LO_ACTIVATE too, which makes gobs interactable with GO_FLAG_INTERACT_COND
                             ///              so just removed GO_FLAG_INTERACT_COND
                             if (GameObject* coffer = GetGameObject(DATA_TALON_KING_COFFER))
-                                coffer->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND | GO_FLAG_NOT_SELECTABLE);
+                                coffer->RemoveFlag(GO_FLAG_INTERACT_COND | GO_FLAG_NOT_SELECTABLE);
                         }
                         break;
                     default:

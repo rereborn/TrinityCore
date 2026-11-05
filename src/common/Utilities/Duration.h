@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,24 +15,37 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _DURATION_H_
-#define _DURATION_H_
+#ifndef TRINITYCORE_DURATION_H
+#define TRINITYCORE_DURATION_H
 
 #include <chrono>
 
 /// Milliseconds shorthand typedef.
-typedef std::chrono::milliseconds Milliseconds;
+using Milliseconds = std::chrono::milliseconds;
+using FloatMilliseconds = std::chrono::duration<double, Milliseconds::period>;
 
 /// Seconds shorthand typedef.
-typedef std::chrono::seconds Seconds;
+using Seconds = std::chrono::seconds;
+using FloatSeconds = std::chrono::duration<double, Seconds::period>;
 
 /// Minutes shorthand typedef.
-typedef std::chrono::minutes Minutes;
+using Minutes = std::chrono::minutes;
+using FloatMinutes = std::chrono::duration<double, Minutes::period>;
 
 /// Hours shorthand typedef.
-typedef std::chrono::hours Hours;
+using Hours = std::chrono::hours;
+using FloatHours = std::chrono::duration<double, Hours::period>;
+
+/// time_point shorthand typedefs
+typedef std::chrono::steady_clock::time_point TimePoint;
+typedef std::chrono::system_clock::time_point SystemTimePoint;
 
 /// Makes std::chrono_literals globally available.
 using namespace std::chrono_literals;
 
-#endif // _DURATION_H_
+constexpr std::chrono::days operator""_days(unsigned long long days)
+{
+    return std::chrono::days(days);
+}
+
+#endif // TRINITYCORE_DURATION_H

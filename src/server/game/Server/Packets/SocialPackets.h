@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,8 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SocialPackets_h__
-#define SocialPackets_h__
+#ifndef TRINITYCORE_SOCIAL_PACKETS_H
+#define TRINITYCORE_SOCIAL_PACKETS_H
 
 #include "Packet.h"
 #include "ObjectGuid.h"
@@ -32,7 +32,7 @@ namespace WorldPackets
         class SendContactList final : public ClientPacket
         {
         public:
-            SendContactList(WorldPacket&& packet) : ClientPacket(CMSG_SEND_CONTACT_LIST, std::move(packet)) { }
+            explicit SendContactList(WorldPacket&& packet) : ClientPacket(CMSG_SEND_CONTACT_LIST, std::move(packet)) { }
 
             void Read() override;
 
@@ -41,8 +41,6 @@ namespace WorldPackets
 
         struct ContactInfo
         {
-            ContactInfo(ObjectGuid const& guid, FriendInfo const& friendInfo);
-
             ObjectGuid Guid;
             ObjectGuid WowAccountGuid;
             uint32 VirtualRealmAddr = 0;
@@ -52,13 +50,13 @@ namespace WorldPackets
             uint8 Status            = 0; ///< @see enum FriendStatus
             uint32 AreaID           = 0;
             uint32 Level            = 0;
-            uint32 ClassID          = CLASS_NONE;
+            int8 ClassID            = CLASS_NONE;
         };
 
         class ContactList final : public ServerPacket
         {
         public:
-            ContactList() : ServerPacket(SMSG_CONTACT_LIST, 8) { }
+            explicit ContactList() : ServerPacket(SMSG_CONTACT_LIST) { }
 
             WorldPacket const* Write() override;
 
@@ -69,15 +67,13 @@ namespace WorldPackets
         class FriendStatus final : public ServerPacket
         {
         public:
-            FriendStatus() : ServerPacket(SMSG_FRIEND_STATUS, 38) { }
-
-            void Initialize(ObjectGuid const& guid, FriendsResult result, FriendInfo const& friendInfo);
+            explicit FriendStatus() : ServerPacket(SMSG_FRIEND_STATUS) { }
 
             WorldPacket const* Write() override;
 
             uint32 VirtualRealmAddress = 0;
             std::string Notes;
-            uint32 ClassID             = CLASS_NONE;
+            int8 ClassID               = CLASS_NONE;
             uint8 Status               = 0; ///< @see enum FriendStatus
             ObjectGuid Guid;
             ObjectGuid WowAccountGuid;
@@ -95,7 +91,7 @@ namespace WorldPackets
         class AddFriend final : public ClientPacket
         {
         public:
-            AddFriend(WorldPacket&& packet) : ClientPacket(CMSG_ADD_FRIEND, std::move(packet)) { }
+            explicit AddFriend(WorldPacket&& packet) : ClientPacket(CMSG_ADD_FRIEND, std::move(packet)) { }
 
             void Read() override;
 
@@ -106,7 +102,7 @@ namespace WorldPackets
         class DelFriend final : public ClientPacket
         {
         public:
-            DelFriend(WorldPacket&& packet) : ClientPacket(CMSG_DEL_FRIEND, std::move(packet)) { }
+            explicit DelFriend(WorldPacket&& packet) : ClientPacket(CMSG_DEL_FRIEND, std::move(packet)) { }
 
             void Read() override;
 
@@ -116,7 +112,7 @@ namespace WorldPackets
         class SetContactNotes final : public ClientPacket
         {
         public:
-            SetContactNotes(WorldPacket&& packet) : ClientPacket(CMSG_SET_CONTACT_NOTES, std::move(packet)) { }
+            explicit SetContactNotes(WorldPacket&& packet) : ClientPacket(CMSG_SET_CONTACT_NOTES, std::move(packet)) { }
 
             void Read() override;
 
@@ -127,23 +123,42 @@ namespace WorldPackets
         class AddIgnore final : public ClientPacket
         {
         public:
-            AddIgnore(WorldPacket&& packet) : ClientPacket(CMSG_ADD_IGNORE, std::move(packet)) { }
+            explicit AddIgnore(WorldPacket&& packet) : ClientPacket(CMSG_ADD_IGNORE, std::move(packet)) { }
 
             void Read() override;
 
             std::string Name;
+            ObjectGuid AccountGUID;
         };
 
         class DelIgnore final : public ClientPacket
         {
         public:
-            DelIgnore(WorldPacket&& packet) : ClientPacket(CMSG_DEL_IGNORE, std::move(packet)) { }
+            explicit DelIgnore(WorldPacket&& packet) : ClientPacket(CMSG_DEL_IGNORE, std::move(packet)) { }
 
             void Read() override;
 
             QualifiedGUID Player;
         };
+
+        class SocialContractRequest final : public ClientPacket
+        {
+        public:
+            explicit SocialContractRequest(WorldPacket&& packet) : ClientPacket(CMSG_SOCIAL_CONTRACT_REQUEST, std::move(packet)) { }
+
+            void Read() override { }
+        };
+
+        class SocialContractRequestResponse final : public ServerPacket
+        {
+        public:
+            explicit SocialContractRequestResponse() : ServerPacket(SMSG_SOCIAL_CONTRACT_REQUEST_RESPONSE, 1) { }
+
+            WorldPacket const* Write() override;
+
+            bool ShowSocialContract = false;
+        };
     }
 }
 
-#endif // SocialPackets_h__
+#endif // TRINITYCORE_SOCIAL_PACKETS_H

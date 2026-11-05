@@ -1,4 +1,4 @@
-# Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+# This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
 #
 # This file is free software; as a special exception the author gives
 # unlimited permission to copy and/or distribute it, with or without
@@ -8,26 +8,36 @@
 # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
 # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
-set(Detour_STAT_SRCS
+add_library(Detour STATIC)
+
+target_sources(Detour
+  PRIVATE
     Source/DetourAlloc.cpp 
+    Source/DetourAssert.cpp 
     Source/DetourCommon.cpp 
     Source/DetourNavMesh.cpp 
     Source/DetourNavMeshBuilder.cpp 
     Source/DetourNavMeshQuery.cpp 
-    Source/DetourNode.cpp 
-)
+    Source/DetourNode.cpp)
 
-add_library(Detour STATIC ${Detour_STAT_SRCS})
-
-target_include_directories(Detour
+target_sources(Detour
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/Include)
+    FILE_SET HEADERS
+    BASE_DIRS Include
+    FILES
+      Include/DetourAlloc.h
+      Include/DetourAssert.h
+      Include/DetourCommon.h
+      Include/DetourMath.h
+      Include/DetourNavMeshBuilder.h
+      Include/DetourNavMesh.h
+      Include/DetourNavMeshQuery.h
+      Include/DetourNode.h
+      Include/DetourStatus.h)
 
 target_link_libraries(Detour
   PRIVATE
-    trinity-dependency-interface
-  PUBLIC
-    zlib)
+    trinity-dependency-interface)
 
 set_target_properties(Detour
     PROPERTIES

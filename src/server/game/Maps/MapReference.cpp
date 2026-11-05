@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -21,7 +21,7 @@
 void MapReference::targetObjectBuildLink()
 {
     // called from link()
-    getTarget()->m_mapRefManager.insertFirst(this);
+    getTarget()->m_mapRefManager.push_front(this);
     getTarget()->m_mapRefManager.incSize();
 }
 

@@ -1,13 +1,30 @@
+/*
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #ifndef _REGULAR_GRID_H
 #define _REGULAR_GRID_H
 
-
-#include <G3D/Ray.h>
-#include <G3D/Table.h>
-#include <G3D/BoundsTrait.h>
-#include <G3D/PositionTrait.h>
-
 #include "Errors.h"
+#include "IteratorPair.h"
+#include <G3D/Ray.h>
+#include <G3D/BoundsTrait.h>
+#include <memory>
+#include <span>
+#include <unordered_map>
 
 template<class Node>
 struct NodeCreator{
@@ -17,8 +34,7 @@ struct NodeCreator{
 template<class T,
 class Node,
 class NodeCreatorFunc = NodeCreator<Node>,
-    /*class BoundsFunc = BoundsTrait<T>,*/
-class PositionFunc = PositionTrait<T>
+class BoundsFunc = BoundsTrait<T>
 >
 class TC_COMMON_API RegularGrid2D
 {
@@ -28,88 +44,79 @@ public:
         CELL_NUMBER = 64,
     };
 
-    #define HGRID_MAP_SIZE  (533.33333f * 64.f)     // shouldn't be changed
-    #define CELL_SIZE       float(HGRID_MAP_SIZE/(float)CELL_NUMBER)
+    #define CELL_SIZE       533.33333f
 
-    typedef G3D::Table<const T*, Node*> MemberTable;
+    typedef std::unordered_multimap<T const*, Node*> MemberTable;
 
     MemberTable memberTable;
-    Node* nodes[CELL_NUMBER][CELL_NUMBER];
+    std::unique_ptr<Node> nodes[CELL_NUMBER][CELL_NUMBER] = { };
 
-    RegularGrid2D(){
-        memset(nodes, 0, sizeof(nodes));
-    }
-
-    ~RegularGrid2D(){
-        for (int x = 0; x < CELL_NUMBER; ++x)
-            for (int y = 0; y < CELL_NUMBER; ++y)
-                delete nodes[x][y];
-    }
-
-    void insert(const T& value)
+    void insert(T const& value)
     {
-        G3D::Vector3 pos;
-        PositionFunc::getPosition(value, pos);
-        Node& node = getGridFor(pos.x, pos.y);
-        node.insert(value);
-        memberTable.set(&value, &node);
+        G3D::AABox bounds = G3D::AABox::empty();
+        BoundsFunc::getBounds(value, bounds);
+        Cell low = Cell::ComputeCell(bounds.low().x, bounds.low().y);
+        Cell high = Cell::ComputeCell(bounds.high().x, bounds.high().y);
+        for (int x = low.x; x <= high.x; ++x)
+        {
+            for (int y = low.y; y <= high.y; ++y)
+            {
+                Node& node = getGrid(x, y);
+                node.insert(value);
+                memberTable.emplace(&value, &node);
+            }
+        }
     }
 
-    void remove(const T& value)
+    void remove(T const& value)
     {
-        memberTable[&value]->remove(value);
+        for (auto& p : Trinity::Containers::MapEqualRange(memberTable, &value))
+            p.second->remove(value);
         // Remove the member
-        memberTable.remove(&value);
+        memberTable.erase(&value);
     }
 
     void balance()
     {
         for (int x = 0; x < CELL_NUMBER; ++x)
             for (int y = 0; y < CELL_NUMBER; ++y)
-                if (Node* n = nodes[x][y])
+                if (Node* n = nodes[x][y].get())
                     n->balance();
     }
 
-    bool contains(const T& value) const { return memberTable.containsKey(&value); }
-    int size() const { return uint32(memberTable.size()); }
+    bool contains(T const& value) const { return memberTable.contains(&value); }
+    bool empty() const { return memberTable.empty(); }
 
     struct Cell
     {
         int x, y;
-        bool operator == (const Cell& c2) const { return x == c2.x && y == c2.y;}
+
+        friend bool operator==(Cell const&, Cell const&) = default;
 
         static Cell ComputeCell(float fx, float fy)
         {
-            Cell c = { int(fx * (1.f/CELL_SIZE) + (CELL_NUMBER/2)), int(fy * (1.f/CELL_SIZE) + (CELL_NUMBER/2)) };
-            return c;
+            return { .x = int(fx * (1.f / CELL_SIZE) + (CELL_NUMBER / 2)), .y = int(fy * (1.f / CELL_SIZE) + (CELL_NUMBER / 2)) };
         }
 
-        bool isValid() const { return x >= 0 && x < CELL_NUMBER && y >= 0 && y < CELL_NUMBER;}
+        bool isValid() const { return x >= 0 && x < CELL_NUMBER && y >= 0 && y < CELL_NUMBER; }
     };
-
-
-    Node& getGridFor(float fx, float fy)
-    {
-        Cell c = Cell::ComputeCell(fx, fy);
-        return getGrid(c.x, c.y);
-    }
 
     Node& getGrid(int x, int y)
     {
         ASSERT(x < CELL_NUMBER && y < CELL_NUMBER);
         if (!nodes[x][y])
-            nodes[x][y] = NodeCreatorFunc::makeNode(x, y);
+            nodes[x][y].reset(NodeCreatorFunc::makeNode(x, y));
         return *nodes[x][y];
     }
 
     template<typename RayCallback>
-    void intersectRay(const G3D::Ray& ray, RayCallback& intersectCallback, float max_dist)
+    void intersectRay(G3D::Ray const& ray, RayCallback& intersectCallback, float max_dist)
     {
         intersectRay(ray, intersectCallback, max_dist, ray.origin() + ray.direction() * max_dist);
     }
 
     template<typename RayCallback>
-    void intersectRay(const G3D::Ray& ray, RayCallback& intersectCallback, float& max_dist, const G3D::Vector3& end)
+    void intersectRay(G3D::Ray const& ray, RayCallback& intersectCallback, float& max_dist, G3D::Vector3 const& end)
     {
         Cell cell = Cell::ComputeCell(ray.origin().x, ray.origin().y);
         if (!cell.isValid())
@@ -119,7 +126,7 @@ public:
 
         if (cell == last_cell)
         {
-            if (Node* node = nodes[cell.x][cell.y])
+            if (Node* node = nodes[cell.x][cell.y].get())
                 node->intersectRay(ray, intersectCallback, max_dist);
             return;
         }
@@ -163,7 +170,7 @@ public:
         float tDeltaY = voxel * std::fabs(ky_inv);
         do
         {
-            if (Node* node = nodes[cell.x][cell.y])
+            if (Node* node = nodes[cell.x][cell.y].get())
             {
                 //float enterdist = max_dist;
                 node->intersectRay(ray, intersectCallback, max_dist);
@@ -185,28 +192,34 @@ public:
     }
 
     template<typename IsectCallback>
-    void intersectPoint(const G3D::Vector3& point, IsectCallback& intersectCallback)
+    void intersectPoint(G3D::Vector3 const& point, IsectCallback& intersectCallback)
     {
         Cell cell = Cell::ComputeCell(point.x, point.y);
         if (!cell.isValid())
             return;
-        if (Node* node = nodes[cell.x][cell.y])
+        if (Node* node = nodes[cell.x][cell.y].get())
             node->intersectPoint(point, intersectCallback);
     }
 
     // Optimized verson of intersectRay function for rays with vertical directions
     template<typename RayCallback>
-    void intersectZAllignedRay(const G3D::Ray& ray, RayCallback& intersectCallback, float& max_dist)
+    void intersectZAllignedRay(G3D::Ray const& ray, RayCallback& intersectCallback, float& max_dist)
     {
         Cell cell = Cell::ComputeCell(ray.origin().x, ray.origin().y);
         if (!cell.isValid())
             return;
-        if (Node* node = nodes[cell.x][cell.y])
+        if (Node* node = nodes[cell.x][cell.y].get())
             node->intersectRay(ray, intersectCallback, max_dist);
+    }
+
+    std::span<T const* const> getObjects(int x, int y) const
+    {
+        if (Node* n = nodes[x][y].get())
+            return n->getObjects();
+        return {};
     }
 };
 
 #undef CELL_SIZE
-#undef HGRID_MAP_SIZE
 
 #endif

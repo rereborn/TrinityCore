@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,192 +17,201 @@
 
 #include "ItemPacketsCommon.h"
 #include "Item.h"
-#include "Player.h"
+#include "Loot.h"
+#include "PacketOperators.h"
 
-bool WorldPackets::Item::ItemBonusInstanceData::operator==(ItemBonusInstanceData const& r) const
+namespace WorldPackets::Item
+{
+bool ItemBonuses::operator==(ItemBonuses const& r) const
 {
     if (Context != r.Context)
         return false;
 
-    if (BonusListIDs.size() != r.BonusListIDs.size())
-        return false;
-
-    return std::is_permutation(BonusListIDs.begin(), BonusListIDs.end(), r.BonusListIDs.begin());
+    return std::ranges::is_permutation(BonusListIDs, r.BonusListIDs);
 }
 
-void WorldPackets::Item::ItemInstance::Initialize(::Item const* item)
+bool ItemModList::operator==(ItemModList const& r) const
 {
-    ItemID               = item->GetEntry();
-    RandomPropertiesSeed = item->GetItemSuffixFactor();
-    RandomPropertiesID   = item->GetItemRandomPropertyId();
-    std::vector<uint32> const& bonusListIds = item->GetDynamicValues(ITEM_DYNAMIC_FIELD_BONUSLIST_IDS);
+    return std::ranges::is_permutation(Values, r.Values);
+}
+
+void ItemInstance::Initialize(::Item const* item)
+{
+    ItemID = item->GetEntry();
+    std::vector<int32> const& bonusListIds = item->GetBonusListIDs();
     if (!bonusListIds.empty())
     {
-        ItemBonus = boost::in_place();
+        ItemBonus.emplace();
         ItemBonus->BonusListIDs.insert(ItemBonus->BonusListIDs.end(), bonusListIds.begin(), bonusListIds.end());
-        ItemBonus->Context = item->GetUInt32Value(ITEM_FIELD_CONTEXT);
+        ItemBonus->Context = item->GetContext();
     }
 
-    if (uint32 mask = item->GetUInt32Value(ITEM_FIELD_MODIFIERS_MASK))
-    {
-        Modifications = boost::in_place();
-
-        for (size_t i = 0; mask != 0; mask >>= 1, ++i)
-            if ((mask & 1) != 0)
-                Modifications->Insert(i, item->GetModifier(ItemModifier(i)));
-    }
+    for (UF::ItemMod mod : item->m_itemData->Modifiers->Values)
+        Modifications.Values.push_back({ .Value = mod.Value, .Type = ItemModifier(mod.Type) });
 }
 
-void WorldPackets::Item::ItemInstance::Initialize(::ItemDynamicFieldGems const* gem)
+void ItemInstance::Initialize(UF::SocketedGem const* gem)
 {
-    ItemID = gem->ItemId;
+    ItemID = gem->ItemID;
 
-    ItemBonusInstanceData bonus;
-    bonus.Context = gem->Context;
+    ItemBonuses bonus;
+    bonus.Context = ItemContext(*gem->Context);
     for (uint16 bonusListId : gem->BonusListIDs)
         if (bonusListId)
             bonus.BonusListIDs.push_back(bonusListId);
 
-    if (bonus.Context || !bonus.BonusListIDs.empty())
+    if (bonus.Context != ItemContext::NONE || !bonus.BonusListIDs.empty())
         ItemBonus = bonus;
 }
 
-void WorldPackets::Item::ItemInstance::Initialize(::LootItem const& lootItem)
+void ItemInstance::Initialize(::LootItem const& lootItem)
 {
-    ItemID               = lootItem.itemid;
-    RandomPropertiesSeed = lootItem.randomSuffix;
-    if (lootItem.randomPropertyId.Type != ItemRandomEnchantmentType::BonusList)
-        RandomPropertiesID = lootItem.randomPropertyId.Id;
+    ItemID = lootItem.itemid;
 
-    if (!lootItem.BonusListIDs.empty())
+    if (!lootItem.BonusListIDs.empty() || lootItem.randomBonusListId)
     {
-        ItemBonus = boost::in_place();
+        ItemBonus.emplace();
         ItemBonus->BonusListIDs = lootItem.BonusListIDs;
         ItemBonus->Context = lootItem.context;
-    }
-
-    if (lootItem.upgradeId)
-    {
-        Modifications = boost::in_place();
-        Modifications->Insert(ITEM_MODIFIER_UPGRADE_ID, lootItem.upgradeId);
+        if (lootItem.randomBonusListId)
+            ItemBonus->BonusListIDs.push_back(lootItem.randomBonusListId);
     }
 }
 
-void WorldPackets::Item::ItemInstance::Initialize(::VoidStorageItem const* voidItem)
+bool ItemInstance::operator==(ItemInstance const& r) const
 {
-    ItemID = voidItem->ItemEntry;
-    RandomPropertiesSeed = voidItem->ItemSuffixFactor;
-    if (voidItem->ItemRandomPropertyId.Type != ItemRandomEnchantmentType::BonusList)
-        RandomPropertiesID = voidItem->ItemRandomPropertyId.Id;
-
-    if (voidItem->ItemUpgradeId || voidItem->FixedScalingLevel || voidItem->ArtifactKnowledgeLevel)
-    {
-        Modifications = boost::in_place();
-        if (voidItem->ItemUpgradeId)
-            Modifications->Insert(ITEM_MODIFIER_UPGRADE_ID, voidItem->ItemUpgradeId);
-        if (voidItem->FixedScalingLevel)
-            Modifications->Insert(ITEM_MODIFIER_SCALING_STAT_DISTRIBUTION_FIXED_LEVEL, voidItem->FixedScalingLevel);
-        if (voidItem->ArtifactKnowledgeLevel)
-            Modifications->Insert(ITEM_MODIFIER_ARTIFACT_KNOWLEDGE_LEVEL, voidItem->ArtifactKnowledgeLevel);
-    }
-
-    if (!voidItem->BonusListIDs.empty())
-    {
-        ItemBonus = boost::in_place();
-        ItemBonus->Context = voidItem->Context;
-        ItemBonus->BonusListIDs = voidItem->BonusListIDs;
-    }
-}
-
-bool WorldPackets::Item::ItemInstance::operator==(ItemInstance const& r) const
-{
-    if (ItemID != r.ItemID || RandomPropertiesID != r.RandomPropertiesID || RandomPropertiesSeed != r.RandomPropertiesSeed)
+    if (ItemID != r.ItemID)
         return false;
 
-    if (ItemBonus.is_initialized() != r.ItemBonus.is_initialized() || Modifications.is_initialized() != r.Modifications.is_initialized())
+    if (ItemBonus != r.ItemBonus)
         return false;
 
-    if (Modifications.is_initialized() && *Modifications != *r.Modifications)
-        return false;
-
-    if (ItemBonus.is_initialized() && *ItemBonus != *r.ItemBonus)
+    if (Modifications != r.Modifications)
         return false;
 
     return true;
 }
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemBonusInstanceData const& itemBonusInstanceData)
+bool ItemBonusKey::operator==(ItemBonusKey const& right) const
+{
+    if (ItemID != right.ItemID)
+        return false;
+
+    if (BonusListIDs != right.BonusListIDs)
+        return false;
+
+    if (Modifications != right.Modifications)
+        return false;
+
+    return true;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, ItemBonuses const& itemBonusInstanceData)
 {
     data << uint8(itemBonusInstanceData.Context);
-    data << uint32(itemBonusInstanceData.BonusListIDs.size());
+    data << Size<uint32>(itemBonusInstanceData.BonusListIDs);
     for (uint32 bonusID : itemBonusInstanceData.BonusListIDs)
         data << uint32(bonusID);
 
     return data;
 }
 
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemBonusInstanceData& itemBonusInstanceData)
+ByteBuffer& operator>>(ByteBuffer& data, ItemBonuses& itemBonusInstanceData)
 {
+    data >> As<uint8>(itemBonusInstanceData.Context);
     uint32 bonusListIdSize;
-
-    data >> itemBonusInstanceData.Context;
     data >> bonusListIdSize;
+    if (bonusListIdSize > 32)
+        OnInvalidArraySize(bonusListIdSize, 32);
 
-    for (uint32 i = 0u; i < bonusListIdSize; ++i)
-    {
-        uint32 bonusId;
-        data >> bonusId;
-        itemBonusInstanceData.BonusListIDs.push_back(bonusId);
-    }
+    itemBonusInstanceData.BonusListIDs.resize(bonusListIdSize);
+
+    for (int32& bonusListID : itemBonusInstanceData.BonusListIDs)
+        data >> bonusListID;
 
     return data;
 }
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemInstance const& itemInstance)
+ByteBuffer& operator<<(ByteBuffer& data, ItemMod const& itemMod)
+{
+    data << uint8(itemMod.Type);
+    data << int32(itemMod.Value);
+
+    return data;
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, ItemMod& itemMod)
+{
+    data >> As<uint8>(itemMod.Type);
+    data >> itemMod.Value;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, ItemModList const& itemModList)
+{
+    data << BitsSize<7>(itemModList.Values);
+    data.FlushBits();
+
+    for (ItemMod const& itemMod : itemModList.Values)
+        data << itemMod;
+
+    return data;
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, ItemModList& itemModList)
+{
+    data >> BitsSize<7>(itemModList.Values);
+    data.ResetBitPos();
+
+    for (ItemMod& itemMod : itemModList.Values)
+        data >> itemMod;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, ItemInstance const& itemInstance)
 {
     data << int32(itemInstance.ItemID);
-    data << int32(itemInstance.RandomPropertiesSeed);
-    data << int32(itemInstance.RandomPropertiesID);
-
-    data.WriteBit(itemInstance.ItemBonus.is_initialized());
-    data.WriteBit(itemInstance.Modifications.is_initialized());
+    data << itemInstance.Modifications;
+    data << OptionalInit(itemInstance.ItemBonus);
     data.FlushBits();
 
     if (itemInstance.ItemBonus)
         data << *itemInstance.ItemBonus;
 
-    if (itemInstance.Modifications)
-        data << *itemInstance.Modifications;
-
     return data;
 }
 
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemInstance& itemInstance)
+ByteBuffer& operator>>(ByteBuffer& data, ItemInstance& itemInstance)
 {
     data >> itemInstance.ItemID;
-    data >> itemInstance.RandomPropertiesSeed;
-    data >> itemInstance.RandomPropertiesID;
-
-    bool hasItemBonus = data.ReadBit();
-    bool hasModifications = data.ReadBit();
+    data >> itemInstance.Modifications;
+    data >> OptionalInit(itemInstance.ItemBonus);
     data.ResetBitPos();
 
-    if (hasItemBonus)
-    {
-        itemInstance.ItemBonus = boost::in_place();
+    if (itemInstance.ItemBonus)
         data >> *itemInstance.ItemBonus;
-    }
-
-    if (hasModifications)
-    {
-        itemInstance.Modifications = boost::in_place();
-        data >> *itemInstance.Modifications;
-    }
 
     return data;
 }
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemEnchantData const& itemEnchantData)
+ByteBuffer& operator<<(ByteBuffer& data, ItemBonusKey const& itemBonusKey)
+{
+    data << int32(itemBonusKey.ItemID);
+    data << Size<uint32>(itemBonusKey.BonusListIDs);
+    data << Size<uint32>(itemBonusKey.Modifications);
+
+    if (!itemBonusKey.BonusListIDs.empty())
+        data.append(itemBonusKey.BonusListIDs.data(), itemBonusKey.BonusListIDs.size());
+
+    for (ItemMod const& modification : itemBonusKey.Modifications)
+        data << modification;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, ItemEnchantData const& itemEnchantData)
 {
     data << int32(itemEnchantData.ID);
     data << uint32(itemEnchantData.Expiration);
@@ -211,28 +220,38 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemEnchantData con
     return data;
 }
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Item::ItemGemData const& itemGemData)
+ByteBuffer& operator<<(ByteBuffer& data, ItemGemData const& itemGemData)
 {
     data << uint8(itemGemData.Slot);
     data << itemGemData.Item;
     return data;
 }
 
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemGemData& itemGemData)
+ByteBuffer& operator>>(ByteBuffer& data, ItemGemData& itemGemData)
 {
     data >> itemGemData.Slot;
     data >> itemGemData.Item;
     return data;
 }
 
-ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::InvUpdate& invUpdate)
+ByteBuffer& operator>>(ByteBuffer& data, InvUpdate& invUpdate)
 {
-    invUpdate.Items.resize(data.ReadBits(2));
-    for (size_t i = 0; i < invUpdate.Items.size(); ++i)
+    data >> BitsSize<2>(invUpdate.Items);
+    data.ResetBitPos();
+    for (InvUpdate::InvItem& item : invUpdate.Items)
     {
-        data >> invUpdate.Items[i].ContainerSlot;
-        data >> invUpdate.Items[i].Slot;
+        data >> item.ContainerSlot;
+        data >> item.Slot;
     }
 
     return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, UiEventToast const& uiEventToast)
+{
+    data << int32(uiEventToast.UiEventToastID);
+    data << int32(uiEventToast.Asset);
+
+    return data;
+}
 }

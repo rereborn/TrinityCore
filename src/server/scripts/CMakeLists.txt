@@ -1,4 +1,4 @@
-# Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+# This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
 #
 # This file is free software; as a special exception the author gives
 # unlimited permission to copy and/or distribute it, with or without
@@ -20,7 +20,7 @@ GetInstallOffset(INSTALL_OFFSET)
 # when using predefined templates for script building
 # like dynamic, static, minimal-static...
 # Sets SCRIPTS_DEFAULT_LINKAGE
-if (SCRIPTS MATCHES "dynamic")
+if(SCRIPTS MATCHES "dynamic")
   set(SCRIPTS_DEFAULT_LINKAGE "dynamic")
 elseif(SCRIPTS MATCHES "static")
   set(SCRIPTS_DEFAULT_LINKAGE "static")
@@ -29,7 +29,7 @@ else()
 endif()
 # Sets SCRIPTS_USE_WHITELIST
 # Sets SCRIPTS_WHITELIST
-if (SCRIPTS MATCHES "minimal")
+if(SCRIPTS MATCHES "minimal")
   set(SCRIPTS_USE_WHITELIST ON)
   # Whitelist which is used when minimal is selected
   list(APPEND SCRIPTS_WHITELIST Commands Spells)
@@ -39,10 +39,10 @@ endif()
 # variables set above
 foreach(SCRIPT_MODULE ${SCRIPT_MODULE_LIST})
   ScriptModuleNameToVariable(${SCRIPT_MODULE} SCRIPT_MODULE_VARIABLE)
-  if (${SCRIPT_MODULE_VARIABLE} STREQUAL "default")
+  if(${SCRIPT_MODULE_VARIABLE} STREQUAL "default")
     if(SCRIPTS_USE_WHITELIST)
       list(FIND SCRIPTS_WHITELIST "${SCRIPT_MODULE}" INDEX)
-      if (${INDEX} GREATER -1)
+      if(${INDEX} GREATER -1)
         set(${SCRIPT_MODULE_VARIABLE} ${SCRIPTS_DEFAULT_LINKAGE})
       else()
         set(${SCRIPT_MODULE_VARIABLE} "disabled")
@@ -52,7 +52,7 @@ foreach(SCRIPT_MODULE ${SCRIPT_MODULE_LIST})
     endif()
   endif()
   # Build the Graph values
-  if (${SCRIPT_MODULE_VARIABLE} MATCHES "dynamic")
+  if(${SCRIPT_MODULE_VARIABLE} MATCHES "dynamic")
     GetProjectNameOfScriptModule(${SCRIPT_MODULE} SCRIPT_MODULE_PROJECT_NAME)
     GetNativeSharedLibraryName(${SCRIPT_MODULE_PROJECT_NAME} SCRIPT_PROJECT_LIBRARY)
     list(APPEND GRAPH_KEYS ${SCRIPT_MODULE_PROJECT_NAME})
@@ -77,7 +77,7 @@ message("* Script configuration (${SCRIPTS}):
     |")
 
 foreach(GRAPH_KEY ${GRAPH_KEYS})
-  if (NOT GRAPH_KEY STREQUAL "disabled")
+  if(NOT GRAPH_KEY STREQUAL "disabled")
     message("    +- ${GRAPH_VALUE_DISPLAY_${GRAPH_KEY}}")
   else()
     message("    |  ${GRAPH_VALUE_DISPLAY_${GRAPH_KEY}}")
@@ -88,12 +88,9 @@ foreach(GRAPH_KEY ${GRAPH_KEYS})
   message("    |")
 endforeach()
 
-# Base sources which are used by every script project
-if (USE_SCRIPTPCH)
-  set(PRIVATE_PCH_HEADER ScriptPCH.h)
-endif ()
-
 GroupSources(${CMAKE_CURRENT_SOURCE_DIR})
+
+add_library(scripts STATIC)
 
 # Configures the scriptloader with the given name and stores the output in the LOADER_OUT variable.
 # It is possible to expose multiple subdirectories from the same scriptloader through passing
@@ -135,41 +132,44 @@ foreach(SCRIPT_MODULE ${SCRIPT_MODULE_LIST})
   GetPathToScriptModule(${SCRIPT_MODULE} SCRIPT_MODULE_PATH)
   ScriptModuleNameToVariable(${SCRIPT_MODULE} SCRIPT_MODULE_VARIABLE)
 
-  if ((${SCRIPT_MODULE_VARIABLE} STREQUAL "disabled") OR
+  if((${SCRIPT_MODULE_VARIABLE} STREQUAL "disabled") OR
       (${SCRIPT_MODULE_VARIABLE} STREQUAL "static"))
     # Uninstall disabled modules
     GetProjectNameOfScriptModule(${SCRIPT_MODULE} SCRIPT_MODULE_PROJECT_NAME)
     GetNativeSharedLibraryName(${SCRIPT_MODULE_PROJECT_NAME} SCRIPT_MODULE_OUTPUT_NAME)
     list(APPEND DISABLED_SCRIPT_MODULE_PROJECTS ${INSTALL_OFFSET}/${SCRIPT_MODULE_OUTPUT_NAME})
-    if (${SCRIPT_MODULE_VARIABLE} STREQUAL "static")
+    if(${SCRIPT_MODULE_VARIABLE} STREQUAL "static")
       # Add the module name to STATIC_SCRIPT_MODULES
       list(APPEND STATIC_SCRIPT_MODULES ${SCRIPT_MODULE})
       # Add the module content to the whole static module
-      CollectSourceFiles(${SCRIPT_MODULE_PATH} PRIVATE_SOURCES)
+      CollectAndAddSourceFiles(scripts ${SCRIPT_MODULE_PATH} HEADER_VISIBILITY PRIVATE)
     endif()
   elseif(${SCRIPT_MODULE_VARIABLE} STREQUAL "dynamic")
     # Generate an own dynamic module which is loadable on runtime
-    # Add the module content to the whole static module
-    unset(SCRIPT_MODULE_PRIVATE_SOURCES)
-    CollectSourceFiles(${SCRIPT_MODULE_PATH} SCRIPT_MODULE_PRIVATE_SOURCES)
     # Configure the scriptloader
     ConfigureScriptLoader(${SCRIPT_MODULE} SCRIPT_MODULE_PRIVATE_SCRIPTLOADER ON ${SCRIPT_MODULE})
     GetProjectNameOfScriptModule(${SCRIPT_MODULE} SCRIPT_MODULE_PROJECT_NAME)
     # Add the module name to DYNAMIC_SCRIPT_MODULES
     list(APPEND DYNAMIC_SCRIPT_MODULE_PROJECTS ${SCRIPT_MODULE_PROJECT_NAME})
     # Create the script module project
-    add_library(${SCRIPT_MODULE_PROJECT_NAME} SHARED
-      ${SCRIPT_MODULE_PRIVATE_SOURCES}
-      ${SCRIPT_MODULE_PRIVATE_SCRIPTLOADER})
+    add_library(${SCRIPT_MODULE_PROJECT_NAME} SHARED)
+    CollectAndAddSourceFiles(${SCRIPT_MODULE_PROJECT_NAME} ${SCRIPT_MODULE_PATH} HEADER_VISIBILITY PRIVATE)
+    target_sources(${SCRIPT_MODULE_PROJECT_NAME}
+      PUBLIC
+        FILE_SET HEADERS FILES ScriptLoader.h
+      PRIVATE
+        ${SCRIPT_MODULE_PRIVATE_SCRIPTLOADER})
+
     target_link_libraries(${SCRIPT_MODULE_PROJECT_NAME}
       PRIVATE
         trinity-core-interface
       PUBLIC
         game)
+
     set_target_properties(${SCRIPT_MODULE_PROJECT_NAME}
       PROPERTIES
-        FOLDER
-          "scripts")
+        COMPILE_WARNING_AS_ERROR ${WITH_WARNINGS_AS_ERRORS}
+        FOLDER "scripts")
 
     if(UNIX)
       install(TARGETS ${SCRIPT_MODULE_PROJECT_NAME}
@@ -198,10 +198,13 @@ set(WORLDSERVER_DYNAMIC_SCRIPT_MODULES_DEPENDENCIES ${DYNAMIC_SCRIPT_MODULE_PROJ
 
 ConfigureScriptLoader("static" SCRIPT_MODULE_PRIVATE_SCRIPTLOADER OFF ${STATIC_SCRIPT_MODULES})
 
-add_library(scripts STATIC
-  ScriptLoader.h
-  ${SCRIPT_MODULE_PRIVATE_SCRIPTLOADER}
-  ${PRIVATE_SOURCES})
+target_sources(scripts
+  PRIVATE
+    ${SCRIPT_MODULE_PRIVATE_SCRIPTLOADER})
+
+target_sources(scripts
+  PUBLIC
+    FILE_SET HEADERS FILES ScriptLoader.h)
 
 target_link_libraries(scripts
   PRIVATE
@@ -209,27 +212,23 @@ target_link_libraries(scripts
   PUBLIC
     game-interface)
 
-target_include_directories(scripts
-  PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
 set_target_properties(scripts
   PROPERTIES
-    FOLDER
-      "scripts")
+    COMPILE_WARNING_AS_ERROR ${WITH_WARNINGS_AS_ERRORS}
+    FOLDER "server")
 
 # Generate precompiled header
-if (USE_SCRIPTPCH)
-  list(APPEND ALL_SCRIPT_PROJECTS scripts ${DYNAMIC_SCRIPT_MODULE_PROJECTS})
-  add_cxx_pch("${ALL_SCRIPT_PROJECTS}" ${PRIVATE_PCH_HEADER} ${PRIVATE_PCH_SOURCE})
+if(USE_SCRIPTPCH)
+  add_cxx_pch("scripts" ScriptPCH.h ${DYNAMIC_SCRIPT_MODULE_PROJECTS})
+  reuse_cxx_pch("${DYNAMIC_SCRIPT_MODULE_PROJECTS}" scripts)
 endif()
 
 # Remove all shared libraries in the installl directory which
 # are contained in the static library already.
-if (DISABLED_SCRIPT_MODULE_PROJECTS)
+if(DISABLED_SCRIPT_MODULE_PROJECTS)
   install(CODE "
     foreach(SCRIPT_TO_UNINSTALL ${DISABLED_SCRIPT_MODULE_PROJECTS})
-      if (EXISTS \"\${SCRIPT_TO_UNINSTALL}\")
+      if(EXISTS \"\${SCRIPT_TO_UNINSTALL}\")
         message(STATUS \"Uninstalling: \${SCRIPT_TO_UNINSTALL}\")
         file(REMOVE \"\${SCRIPT_TO_UNINSTALL}\")
       endif()

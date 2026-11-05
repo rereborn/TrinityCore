@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,20 +15,22 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef AllPackets_h__
-#define AllPackets_h__
+#ifndef TRINITYCORE_ALL_PACKETS_H
+#define TRINITYCORE_ALL_PACKETS_H
 
 #include "AchievementPackets.h"
+#include "AddonPackets.h"
+#include "AdventureJournalPackets.h"
+#include "AdventureMapPackets.h"
 #include "AreaTriggerPackets.h"
 #include "ArtifactPackets.h"
 #include "AuctionHousePackets.h"
 #include "AuthenticationPackets.h"
+#include "AzeritePackets.h"
 #include "BankPackets.h"
-#include "BlackMarketPackets.h"
-#include "BattlefieldPackets.h"
+#include "BattlePetPackets.h"
 #include "BattlegroundPackets.h"
 #include "BattlenetPackets.h"
-#include "BattlePetPackets.h"
 #include "BlackMarketPackets.h"
 #include "CalendarPackets.h"
 #include "ChannelPackets.h"
@@ -42,9 +44,9 @@
 #include "EquipmentSetPackets.h"
 #include "GameObjectPackets.h"
 #include "GarrisonPackets.h"
-#include "GuildFinderPackets.h"
 #include "GuildPackets.h"
 #include "HotfixPackets.h"
+#include "HousingPackets.h"
 #include "InspectPackets.h"
 #include "InstancePackets.h"
 #include "ItemPackets.h"
@@ -58,7 +60,6 @@
 #include "PartyPackets.h"
 #include "PetPackets.h"
 #include "PetitionPackets.h"
-#include "PetPackets.h"
 #include "QueryPackets.h"
 #include "QuestPackets.h"
 #include "ReferAFriendPackets.h"
@@ -75,11 +76,11 @@
 #include "TotemPackets.h"
 #include "ToyPackets.h"
 #include "TradePackets.h"
+#include "TraitPackets.h"
 #include "TransmogrificationPackets.h"
 #include "VehiclePackets.h"
-#include "VoidStoragePackets.h"
-#include "WardenPackets.h"
+#include "VignettePackets.h"
 #include "WhoPackets.h"
 #include "WorldStatePackets.h"
 
-#endif // AllPackets_h__
+#endif // TRINITYCORE_ALL_PACKETS_H

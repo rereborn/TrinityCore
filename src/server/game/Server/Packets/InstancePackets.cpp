@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,77 +16,80 @@
  */
 
 #include "InstancePackets.h"
+#include "PacketOperators.h"
 
-WorldPacket const* WorldPackets::Instance::UpdateLastInstance::Write()
+namespace WorldPackets::Instance
+{
+WorldPacket const* UpdateLastInstance::Write()
 {
     _worldPacket << uint32(MapID);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::UpdateInstanceOwnership::Write()
+WorldPacket const* UpdateInstanceOwnership::Write()
 {
     _worldPacket << int32(IOwnInstance);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceInfo::Write()
+ByteBuffer& operator<<(ByteBuffer& data, InstanceLock const& lockInfos)
 {
-    _worldPacket << int32(LockList.size());
+    data << uint32(lockInfos.MapID);
+    data << int16(lockInfos.DifficultyID);
+    data << uint64(lockInfos.InstanceID);
+    data << int32(lockInfos.TimeRemaining);
+    data << uint32(lockInfos.CompletedMask);
 
-    for (InstanceLockInfos const& lockInfos : LockList)
-        _worldPacket << lockInfos;
-
-    return &_worldPacket;
-}
-
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Instance::InstanceLockInfos const& lockInfos)
-{
-    data << lockInfos.MapID;
-    data << lockInfos.DifficultyID;
-    data << lockInfos.InstanceID;
-    data << lockInfos.TimeRemaining;
-    data << lockInfos.CompletedMask;
-
-    data.WriteBit(lockInfos.Locked);
-    data.WriteBit(lockInfos.Extended);
+    data << Bits<1>(lockInfos.Locked);
+    data << Bits<1>(lockInfos.Extended);
 
     data.FlushBits();
 
     return data;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceReset::Write()
+WorldPacket const* InstanceInfo::Write()
+{
+    _worldPacket << Size<int32>(LockList);
+
+    for (InstanceLock const& instanceLock : LockList)
+        _worldPacket << instanceLock;
+
+    return &_worldPacket;
+}
+
+WorldPacket const* InstanceReset::Write()
 {
     _worldPacket << uint32(MapID);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceResetFailed::Write()
+WorldPacket const* InstanceResetFailed::Write()
 {
     _worldPacket << uint32(MapID);
-    _worldPacket.WriteBits(ResetFailedReason, 2);
+    _worldPacket << Bits<2>(ResetFailedReason);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceSaveCreated::Write()
+WorldPacket const* InstanceSaveCreated::Write()
 {
-    _worldPacket.WriteBit(Gm);
+    _worldPacket << Bits<1>(Gm);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-void WorldPackets::Instance::InstanceLockResponse::Read()
+void InstanceLockResponse::Read()
 {
-    AcceptLock = _worldPacket.ReadBit();
+    _worldPacket >> Bits<1>(AcceptLock);
 }
 
-WorldPacket const* WorldPackets::Instance::RaidGroupOnly::Write()
+WorldPacket const* RaidGroupOnly::Write()
 {
     _worldPacket << Delay;
     _worldPacket << Reason;
@@ -94,30 +97,34 @@ WorldPacket const* WorldPackets::Instance::RaidGroupOnly::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::PendingRaidLock::Write()
+WorldPacket const* PendingRaidLock::Write()
 {
     _worldPacket << int32(TimeUntilLock);
     _worldPacket << uint32(CompletedMask);
-    _worldPacket.WriteBit(Extending);
-    _worldPacket.WriteBit(WarningOnly);
+    _worldPacket << Bits<1>(Extending);
+    _worldPacket << Bits<1>(WarningOnly);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::RaidInstanceMessage::Write()
+WorldPacket const* RaidInstanceMessage::Write()
 {
-    _worldPacket << uint8(Type);
+    _worldPacket << int32(Type);
     _worldPacket << uint32(MapID);
-    _worldPacket << uint32(DifficultyID);
-    _worldPacket.WriteBit(Locked);
-    _worldPacket.WriteBit(Extended);
+    _worldPacket << int16(DifficultyID);
+    _worldPacket << int32(TimeLeft);
+    _worldPacket << SizedString::BitsSize<8>(WarningMessage);
+    _worldPacket << Bits<1>(Locked);
+    _worldPacket << Bits<1>(Extended);
     _worldPacket.FlushBits();
 
+    _worldPacket << SizedString::Data(WarningMessage);
+
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceEncounterEngageUnit::Write()
+WorldPacket const* InstanceEncounterEngageUnit::Write()
 {
     _worldPacket << Unit;
     _worldPacket << uint8(TargetFramePriority);
@@ -125,14 +132,14 @@ WorldPacket const* WorldPackets::Instance::InstanceEncounterEngageUnit::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceEncounterDisengageUnit::Write()
+WorldPacket const* InstanceEncounterDisengageUnit::Write()
 {
     _worldPacket << Unit;
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceEncounterChangePriority::Write()
+WorldPacket const* InstanceEncounterChangePriority::Write()
 {
     _worldPacket << Unit;
     _worldPacket << uint8(TargetFramePriority);
@@ -140,17 +147,48 @@ WorldPacket const* WorldPackets::Instance::InstanceEncounterChangePriority::Writ
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceEncounterStart::Write()
+WorldPacket const* InstanceEncounterTimerStart::Write()
+{
+    _worldPacket << int32(TimeRemaining);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* InstanceEncounterObjectiveStart::Write()
+{
+    _worldPacket << int32(ObjectiveID);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* InstanceEncounterObjectiveUpdate::Write()
+{
+    _worldPacket << int32(ObjectiveID);
+    _worldPacket << int32(ProgressAmount);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* InstanceEncounterObjectiveComplete::Write()
+{
+    _worldPacket << int32(ObjectiveID);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* InstanceEncounterStart::Write()
 {
     _worldPacket << uint32(InCombatResCount);
     _worldPacket << uint32(MaxInCombatResCount);
     _worldPacket << uint32(CombatResChargeRecovery);
     _worldPacket << uint32(NextCombatResChargeTime);
+    _worldPacket << Bits<1>(InProgress);
+    _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::InstanceEncounterGainCombatResurrectionCharge::Write()
+WorldPacket const* InstanceEncounterGainCombatResurrectionCharge::Write()
 {
     _worldPacket << int32(InCombatResCount);
     _worldPacket << uint32(CombatResChargeRecovery);
@@ -158,9 +196,10 @@ WorldPacket const* WorldPackets::Instance::InstanceEncounterGainCombatResurrecti
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Instance::BossKillCredit::Write()
+WorldPacket const* BossKill::Write()
 {
     _worldPacket << uint32(DungeonEncounterID);
 
     return &_worldPacket;
+}
 }

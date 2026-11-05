@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -20,7 +19,11 @@
 #define __EVENTPROCESSOR_H
 
 #include "Define.h"
+#include "Duration.h"
+#include "Random.h"
+#include <concepts>
 #include <map>
+#include <type_traits>
 
 class EventProcessor;
 
@@ -68,16 +71,47 @@ class TC_COMMON_API BasicEvent
         uint64 m_execTime;                                  // planned time of next execution, filled by event handler
 };
 
+template<typename T>
+class LambdaBasicEvent : public BasicEvent
+{
+public:
+    explicit LambdaBasicEvent(T&& callback) : BasicEvent(), _callback(std::move(callback)) { }
+
+    bool Execute(uint64, uint32) override
+    {
+        _callback();
+        return true;
+    }
+
+private:
+    T _callback;
+};
+
 class TC_COMMON_API EventProcessor
 {
     public:
         EventProcessor() : m_time(0) { }
+        EventProcessor(EventProcessor const&) = delete;
+        EventProcessor(EventProcessor&&) = delete;
+        EventProcessor& operator=(EventProcessor const&) = delete;
+        EventProcessor& operator=(EventProcessor&&) = delete;
         ~EventProcessor();
 
         void Update(uint32 p_time);
         void KillAllEvents(bool force);
-        void AddEvent(BasicEvent* Event, uint64 e_time, bool set_addtime = true);
-        uint64 CalculateTime(uint64 t_offset) const;
+
+        void AddEvent(BasicEvent* event, Milliseconds e_time, bool set_addtime = true);
+        template<std::invocable<> T>
+        void AddEvent(T&& event, Milliseconds e_time, bool set_addtime = true) { AddEvent(new LambdaBasicEvent<T>(std::forward<T>(event)), e_time, set_addtime); }
+        void AddEventAtOffset(BasicEvent* event, Milliseconds offset) { AddEvent(event, CalculateTime(offset)); }
+        void AddEventAtOffset(BasicEvent* event, Milliseconds offset, Milliseconds offset2) { AddEvent(event, CalculateTime(randtime(offset, offset2))); }
+        template<std::invocable<> T>
+        void AddEventAtOffset(T&& event, Milliseconds offset) { AddEventAtOffset(new LambdaBasicEvent<T>(std::forward<T>(event)), offset); }
+        template<std::invocable<> T>
+        void AddEventAtOffset(T&& event, Milliseconds offset, Milliseconds offset2) { AddEventAtOffset(new LambdaBasicEvent<T>(std::forward<T>(event)), offset, offset2); }
+        void ModifyEventTime(BasicEvent* event, Milliseconds newTime);
+        Milliseconds CalculateTime(Milliseconds t_offset) const { return Milliseconds(m_time) + t_offset; }
+        std::multimap<uint64, BasicEvent*> const& GetEvents() const { return m_events; }
 
     protected:
         uint64 m_time;

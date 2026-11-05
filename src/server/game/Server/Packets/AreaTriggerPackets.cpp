@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,82 +16,38 @@
  */
 
 #include "AreaTriggerPackets.h"
+#include "PacketOperators.h"
 
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::AreaTrigger::AreaTriggerSplineInfo const& areaTriggerSpline)
+namespace WorldPackets::AreaTrigger
 {
-    data << uint32(areaTriggerSpline.TimeToTarget);
-    data << uint32(areaTriggerSpline.ElapsedTimeForMovement);
-
-    data.WriteBits(areaTriggerSpline.Points.size(), 16);
-    data.FlushBits();
-
-    for (TaggedPosition<Position::XYZ> const& point : areaTriggerSpline.Points)
-        data << point;
-
-    return data;
-}
-
-ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::AreaTrigger::AreaTriggerUnkTypeInfo const& areaTriggerUnkType)
-{
-    data.WriteBit(areaTriggerUnkType.AreaTriggerUnkGUID.is_initialized());
-    data.WriteBit(areaTriggerUnkType.Center.is_initialized());
-    data.WriteBit(areaTriggerUnkType.UnkBit1);
-    data.WriteBit(areaTriggerUnkType.UnkBit2);
-
-    data << uint32(areaTriggerUnkType.UnkUInt1);
-    data << int32(areaTriggerUnkType.UnkInt1);
-    data << uint32(areaTriggerUnkType.UnkUInt2);
-    data << float(areaTriggerUnkType.Radius);
-    data << float(areaTriggerUnkType.BlendFromRadius);
-    data << float(areaTriggerUnkType.InitialAngel);
-    data << float(areaTriggerUnkType.ZOffset);
-
-    if (areaTriggerUnkType.AreaTriggerUnkGUID)
-        data << *areaTriggerUnkType.AreaTriggerUnkGUID;
-
-    if (areaTriggerUnkType.Center)
-        data << *areaTriggerUnkType.Center;
-
-    return data;
-}
-
-void WorldPackets::AreaTrigger::AreaTrigger::Read()
+void AreaTrigger::Read()
 {
     _worldPacket >> AreaTriggerID;
-    Entered = _worldPacket.ReadBit();
-    FromClient = _worldPacket.ReadBit();
+    _worldPacket >> Bits<1>(Entered);
+    _worldPacket >> Bits<1>(FromClient);
 }
 
-WorldPacket const* WorldPackets::AreaTrigger::AreaTriggerDenied::Write()
+WorldPacket const* AreaTriggerDenied::Write()
 {
     _worldPacket << int32(AreaTriggerID);
-    _worldPacket.WriteBit(Entered);
+    _worldPacket << Bits<1>(Entered);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::AreaTrigger::AreaTriggerRePath::Write()
+WorldPacket const* AreaTriggerPlaySpellVisual::Write()
 {
-    _worldPacket << TriggerGUID;
-    _worldPacket << AreaTriggerSpline;
+    _worldPacket << AreaTriggerGUID;
+    _worldPacket << uint32(SpellVisualID);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::AreaTrigger::AreaTriggerReShape::Write()
+void UpdateAreaTriggerVisual::Read()
 {
-    _worldPacket << TriggerGUID;
-
-    _worldPacket.WriteBit(AreaTriggerSpline.is_initialized());
-    _worldPacket.WriteBit(AreaTriggerUnkType.is_initialized());
-    _worldPacket.FlushBits();
-
-    if (AreaTriggerSpline)
-        _worldPacket << *AreaTriggerSpline;
-
-    if (AreaTriggerUnkType)
-        _worldPacket << *AreaTriggerUnkType;
-
-    return &_worldPacket;
+    _worldPacket >> SpellID;
+    _worldPacket >> Visual;
+    _worldPacket >> TargetGUID;
+}
 }

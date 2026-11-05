@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -15,8 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef TicketPackets_h__
-#define TicketPackets_h__
+#ifndef TRINITYCORE_TICKET_PACKETS_H
+#define TRINITYCORE_TICKET_PACKETS_H
 
 #include "Packet.h"
 #include "LFGPacketsCommon.h"
@@ -32,12 +32,13 @@ namespace WorldPackets
             int32 MapID = 0;
             TaggedPosition<::Position::XYZ> Position;
             float Facing = 0.0f;
+            int32 Program = 0;
         };
 
         class GMTicketGetSystemStatus final : public ClientPacket
         {
         public:
-            GMTicketGetSystemStatus(WorldPacket&& packet) : ClientPacket(CMSG_GM_TICKET_GET_SYSTEM_STATUS, std::move(packet)) { }
+            explicit GMTicketGetSystemStatus(WorldPacket&& packet) : ClientPacket(CMSG_GM_TICKET_GET_SYSTEM_STATUS, std::move(packet)) { }
 
             void Read() override { }
         };
@@ -45,7 +46,7 @@ namespace WorldPackets
         class GMTicketSystemStatus final : public ServerPacket
         {
         public:
-            GMTicketSystemStatus() : ServerPacket(SMSG_GM_TICKET_SYSTEM_STATUS, 4) { }
+            explicit GMTicketSystemStatus() : ServerPacket(SMSG_GM_TICKET_SYSTEM_STATUS, 4) { }
 
             WorldPacket const* Write() override;
 
@@ -55,7 +56,7 @@ namespace WorldPackets
         class GMTicketGetCaseStatus final : public ClientPacket
         {
         public:
-            GMTicketGetCaseStatus(WorldPacket&& packet) : ClientPacket(CMSG_GM_TICKET_GET_CASE_STATUS, std::move(packet)) { }
+            explicit GMTicketGetCaseStatus(WorldPacket&& packet) : ClientPacket(CMSG_GM_TICKET_GET_CASE_STATUS, std::move(packet)) { }
 
             void Read() override { }
         };
@@ -66,13 +67,15 @@ namespace WorldPackets
             struct GMTicketCase
             {
                 int32 CaseID = 0;
-                int32 CaseOpened = 0;
+                Timestamp<> CaseOpened;
                 int32 CaseStatus = 0;
-                int16 CfgRealmID = 0;
-                int64 CharacterID = 0;
+                uint16 CfgRealmID = 0;
+                uint64 CharacterID = 0;
                 int32 WaitTimeOverrideMinutes = 0;
                 std::string Url;
                 std::string WaitTimeOverrideMessage;
+                std::string Title;
+                std::string Description;
             };
 
             GMTicketCaseStatus() : ServerPacket(SMSG_GM_TICKET_CASE_STATUS, 12) { }
@@ -85,113 +88,170 @@ namespace WorldPackets
         class GMTicketAcknowledgeSurvey final : public ClientPacket
         {
         public:
-            GMTicketAcknowledgeSurvey(WorldPacket&& packet) : ClientPacket(CMSG_GM_TICKET_ACKNOWLEDGE_SURVEY, std::move(packet)) { }
+            explicit GMTicketAcknowledgeSurvey(WorldPacket&& packet) : ClientPacket(CMSG_GM_TICKET_ACKNOWLEDGE_SURVEY, std::move(packet)) { }
 
             void Read() override;
 
-            int32 CaseID;
+            int32 CaseID = 0;
         };
 
-        class SupportTicketSubmitBug final : public ClientPacket
+        class SubmitUserFeedback final : public ClientPacket
         {
         public:
-            SupportTicketSubmitBug(WorldPacket&& packet) : ClientPacket(CMSG_SUPPORT_TICKET_SUBMIT_BUG, std::move(packet)) { }
+            explicit SubmitUserFeedback(WorldPacket&& packet) : ClientPacket(CMSG_SUBMIT_USER_FEEDBACK, std::move(packet)) { }
 
             void Read() override;
 
             SupportTicketHeader Header;
             std::string Note;
+            bool IsSuggestion = false;
         };
 
-        class SupportTicketSubmitSuggestion final : public ClientPacket
+        struct SupportTicketChatLine
         {
-        public:
-            SupportTicketSubmitSuggestion(WorldPacket&& packet) : ClientPacket(CMSG_SUPPORT_TICKET_SUBMIT_SUGGESTION, std::move(packet)) { }
+            SupportTicketChatLine() { }
+            SupportTicketChatLine(time_t timestamp, std::string_view text);
 
-            void Read() override;
+            WorldPackets::Timestamp<> Timestamp;
+            std::string Text;
+        };
 
-            SupportTicketHeader Header;
-            std::string Note;
+        struct SupportTicketChatLog
+        {
+            Array<SupportTicketChatLine, 255> Lines;
+            Optional<uint32> ReportLineIndex;
+        };
+
+        struct SupportTicketHorusChatLine
+        {
+            struct ServerSpec
+            {
+                uint32 Realm;
+                uint16 Server;
+                uint8 Type;
+            };
+
+            WorldPackets::Timestamp<> Timestamp;
+            ObjectGuid PlayerGuid;
+            Optional<uint64> ClubID;
+            Optional<ObjectGuid> ChannelGuid;
+            Optional<ServerSpec> WorldServer;
+            Optional<int32> Cmd;
+            std::string Text;
+        };
+
+        struct SupportTicketHorusChatLog
+        {
+            Array<SupportTicketHorusChatLine, 255> Lines;
+        };
+
+        struct SupportTicketMailInfo
+        {
+            int64 MailID = 0;
+            std::string MailSubject;
+            std::string MailBody;
+        };
+
+        struct SupportTicketCalendarEventInfo
+        {
+            uint64 EventID = 0;
+            uint64 InviteID = 0;
+            std::string EventTitle;
+        };
+
+        struct SupportTicketPetInfo
+        {
+            ObjectGuid PetID;
+            std::string PetName;
+        };
+
+        struct SupportTicketGuildInfo
+        {
+            ObjectGuid GuildID;
+            std::string GuildName;
+        };
+
+        struct SupportTicketLFGListEntryInfo
+        {
+            WorldPackets::LFG::RideTicket Ticket;
+            uint32 ActivityID = 0;
+            uint8 FactionID = 0;
+            ObjectGuid LastTouchedName;
+            ObjectGuid LastTouchedComment;
+            ObjectGuid LastTouchedVoiceChat;
+            ObjectGuid LastTouchedAny;
+            ObjectGuid PartyGuid;
+            std::string Name;
+            std::string Comment;
+            std::string VoiceChat;
+        };
+
+        struct SupportTicketLFGListApplicant
+        {
+            WorldPackets::LFG::RideTicket Ticket;
+            std::string Comment;
+        };
+
+        struct SupportTicketVoiceChatInfo
+        {
+            bool TargetIsCurrentlyInVoiceChatWithPlayer = false;
+        };
+
+        struct SupportTicketClubFinderInfo
+        {
+            uint64 PostingID = 0;
+            uint64 ClubID = 0;
+            ObjectGuid GuildID;
+            std::string PostingDescription;
+        };
+
+        struct SupportTicketArenaTeamInfo
+        {
+            std::string ArenaTeamName;
+            ObjectGuid ArenaTeamID;
+        };
+
+        struct SupportTicketHouseInfo
+        {
+            std::string NeighborhoodName;
+            ObjectGuid NeighborhoodGUID;
+            ObjectGuid NeighborhoodOwnerGUID;
+            ObjectGuid HouseGUID;
+            uint8 PlotID = 0;
+        };
+
+        struct SupportTicketHousingBlueprint
+        {
+            std::string_view Id;
+            std::string_view ShareCode;
         };
 
         class SupportTicketSubmitComplaint final : public ClientPacket
         {
         public:
-            struct SupportTicketChatLine
-            {
-                SupportTicketChatLine(ByteBuffer& data);
-                SupportTicketChatLine(uint32 timestamp, std::string const& text);
-
-                uint32 Timestamp = 0;
-                std::string Text;
-            };
-
-            struct SupportTicketChatLog
-            {
-                std::vector<SupportTicketChatLine> Lines;
-                Optional<uint32> ReportLineIndex;
-            };
-
-            struct SupportTicketMailInfo
-            {
-                int32 MailID = 0;
-                std::string MailSubject;
-                std::string MailBody;
-            };
-
-            struct SupportTicketCalendarEventInfo
-            {
-                uint64 EventID;
-                uint64 InviteID;
-                std::string EventTitle;
-            };
-
-            struct SupportTicketPetInfo
-            {
-                ObjectGuid PetID;
-                std::string PetName;
-            };
-
-            struct SupportTicketGuildInfo
-            {
-                ObjectGuid GuildID;
-                std::string GuildName;
-            };
-
-            struct SupportTicketLFGListSearchResult
-            {
-                WorldPackets::LFG::RideTicket RideTicket;
-                uint32 GroupFinderActivityID = 0;
-                ObjectGuid LastTitleAuthorGuid;
-                ObjectGuid LastDescriptionAuthorGuid;
-                ObjectGuid LastVoiceChatAuthorGuid;
-                std::string Title;
-                std::string Description;
-                std::string VoiceChat;
-            };
-
-            struct SupportTicketLFGListApplicant
-            {
-                WorldPackets::LFG::RideTicket RideTicket;
-                std::string Comment;
-            };
-
-            SupportTicketSubmitComplaint(WorldPacket&& packet) : ClientPacket(CMSG_SUPPORT_TICKET_SUBMIT_COMPLAINT, std::move(packet)) { }
+            explicit SupportTicketSubmitComplaint(WorldPacket&& packet) : ClientPacket(CMSG_SUPPORT_TICKET_SUBMIT_COMPLAINT, std::move(packet)) { }
 
             void Read() override;
 
             SupportTicketHeader Header;
             SupportTicketChatLog ChatLog;
             ObjectGuid TargetCharacterGUID;
-            uint8 ComplaintType = 0;
+            int32 ReportType = 0;
+            int32 MajorCategory = 0;
+            int32 MinorCategoryFlags = 0;
+            SupportTicketHorusChatLog HorusChatLog;
             std::string Note;
             Optional<SupportTicketMailInfo> MailInfo;
             Optional<SupportTicketCalendarEventInfo> CalenderInfo;
             Optional<SupportTicketPetInfo> PetInfo;
             Optional<SupportTicketGuildInfo> GuildInfo;
-            Optional<SupportTicketLFGListSearchResult> LFGListSearchResult;
-            Optional<SupportTicketLFGListApplicant> LFGListApplicant;
-
+            Optional<SupportTicketLFGListEntryInfo> LfgListEntryInfo;
+            Optional<SupportTicketLFGListApplicant> LfgListAppInfo;
+            Optional<SupportTicketVoiceChatInfo> VoiceChatInfo;
+            Optional<SupportTicketClubFinderInfo> ClubFinderInfo;
+            Optional<SupportTicketArenaTeamInfo> ArenaTeamInfo;
+            Optional<SupportTicketHouseInfo> HouseInfo;
+            Optional<SupportTicketHousingBlueprint> HousingBlueprint;
         };
 
         class Complaint final : public ClientPacket
@@ -211,13 +271,13 @@ namespace WorldPackets
                 std::string MessageLog;
             };
 
-            Complaint(WorldPacket&& packet) : ClientPacket(CMSG_COMPLAINT, std::move(packet)) { }
+            explicit Complaint(WorldPacket&& packet) : ClientPacket(CMSG_COMPLAINT, std::move(packet)) { }
 
             void Read() override;
 
             uint8 ComplaintType = 0;
             ComplaintOffender Offender;
-            uint32 MailID = 0;
+            uint64 MailID = 0;
             ComplaintChat Chat;
             uint64 EventGuid = 0;
             uint64 InviteGuid = 0;
@@ -226,7 +286,7 @@ namespace WorldPackets
         class ComplaintResult final : public ServerPacket
         {
         public:
-            ComplaintResult() : ServerPacket(SMSG_COMPLAINT_RESULT, 9) { }
+            explicit ComplaintResult() : ServerPacket(SMSG_COMPLAINT_RESULT, 9) { }
 
             WorldPacket const* Write() override;
 
@@ -237,7 +297,7 @@ namespace WorldPackets
         class BugReport final : public ClientPacket
         {
         public:
-            BugReport(WorldPacket&& packet) : ClientPacket(CMSG_BUG_REPORT, std::move(packet)) { }
+            explicit BugReport(WorldPacket&& packet) : ClientPacket(CMSG_BUG_REPORT, std::move(packet)) { }
 
             void Read() override;
 
@@ -248,4 +308,4 @@ namespace WorldPackets
     }
 }
 
-#endif // TicketPackets_h__
+#endif // TRINITYCORE_TICKET_PACKETS_H

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,62 +16,109 @@
  */
 
 #include "CharacterPackets.h"
+#include "ClubUtils.h"
 #include "DB2Stores.h"
 #include "Field.h"
 #include "ObjectMgr.h"
+#include "PacketOperators.h"
 #include "Player.h"
 #include "World.h"
 
-WorldPackets::Character::EnumCharacters::EnumCharacters(WorldPacket&& packet) : ClientPacket(std::move(packet))
+namespace UF
+{
+ByteBuffer& operator<<(ByteBuffer& data, ChrCustomizationChoice const& customizationChoice)
+{
+    data << uint32(customizationChoice.ChrCustomizationOptionID);
+    data << uint32(customizationChoice.ChrCustomizationChoiceID);
+
+    return data;
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, ChrCustomizationChoice& customizationChoice)
+{
+    data >> customizationChoice.ChrCustomizationOptionID;
+    data >> customizationChoice.ChrCustomizationChoiceID;
+
+    return data;
+}
+}
+
+namespace WorldPackets::Character
+{
+void SortCustomizations(Array<ChrCustomizationChoice, 250>& customizations)
+{
+    std::ranges::sort(customizations, std::ranges::less(), &ChrCustomizationChoice::ChrCustomizationOptionID);
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, CustomTabardInfo const& customTabardInfo)
+{
+    data << int32(customTabardInfo.EmblemStyle);
+    data << int32(customTabardInfo.EmblemColor);
+    data << int32(customTabardInfo.BorderStyle);
+    data << int32(customTabardInfo.BorderColor);
+    data << int32(customTabardInfo.BackgroundColor);
+
+    return data;
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, CustomTabardInfo& customTabardInfo)
+{
+    data >> customTabardInfo.EmblemStyle;
+    data >> customTabardInfo.EmblemColor;
+    data >> customTabardInfo.BorderStyle;
+    data >> customTabardInfo.BorderColor;
+    data >> customTabardInfo.BackgroundColor;
+
+    return data;
+}
+
+EnumCharacters::EnumCharacters(WorldPacket&& packet) : ClientPacket(std::move(packet))
 {
     ASSERT(GetOpcode() == CMSG_ENUM_CHARACTERS || GetOpcode() == CMSG_ENUM_CHARACTERS_DELETED_BY_CLIENT);
 }
 
-WorldPackets::Character::EnumCharactersResult::CharacterInfo::CharacterInfo(Field* fields)
+EnumCharactersResult::CharacterInfoBasic::CharacterInfoBasic(Field const* fields)
 {
-    //         0                1                2                3                 4                  5                6                7
-    // "SELECT characters.guid, characters.name, characters.race, characters.class, characters.gender, characters.skin, characters.face, characters.hairStyle, "
-    //  8                     9                       10                         11                         12                         13
-    // "characters.hairColor, characters.facialStyle, characters.customDisplay1, characters.customDisplay2, characters.customDisplay3, characters.level, "
-    //  14               15              16                     17                     18
+    //         0                1                2                3                 4                  5
+    // "SELECT characters.guid, characters.name, characters.race, characters.class, characters.gender, characters.level, "
+    //  6                7               8                      9                      10
     // "characters.zone, characters.map, characters.position_x, characters.position_y, characters.position_z, "
-    //  19                    20                      21                   22                   23                     24                   25
-    // "guild_member.guildid, characters.playerFlags, characters.at_login, character_pet.entry, character_pet.modelid, character_pet.level, characters.equipmentCache, "
-    //  26                     27               28                      29                            30
-    // "character_banned.guid, characters.slot, characters.logout_time, characters.activeTalentGroup, character_declinedname.genitive"
+    //  11                    12                      13                   14                   15                     16
+    // "guild_member.guildid, characters.playerFlags, characters.at_login, character_pet.entry, character_pet.modelid, character_pet.level, "
+    //  17                     18               19                     20                      21                            22
+    // "character_banned.guid, characters.slot, characters.createTime, characters.logout_time, characters.activeTalentGroup, characters.lastLoginBuild, "
+    //  23                                    24                                    25                                    26                                    27
+    // "characters.personalTabardEmblemStyle, characters.personalTabardEmblemColor, characters.personalTabardBorderStyle, characters.personalTabardBorderColor, characters.personalTabardBackgroundColor "
+    // 19 * 8 fields of equipment cache...
+    //  180
+    // "character_declinedname.genitive"
 
     Guid              = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
-    Name              = fields[1].GetString();
-    Race              = fields[2].GetUInt8();
-    Class             = fields[3].GetUInt8();
-    Sex               = fields[4].GetUInt8();
-    Skin              = fields[5].GetUInt8();
-    Face              = fields[6].GetUInt8();
-    HairStyle         = fields[7].GetUInt8();
-    HairColor         = fields[8].GetUInt8();
-    FacialHair        = fields[9].GetUInt8();
-    CustomDisplay[0]  = fields[10].GetUInt8();
-    CustomDisplay[1]  = fields[11].GetUInt8();
-    CustomDisplay[2]  = fields[12].GetUInt8();
-    Level             = fields[13].GetUInt8();
-    ZoneId            = int32(fields[14].GetUInt16());
-    MapId             = int32(fields[15].GetUInt16());
-    PreLoadPosition   = Position(fields[16].GetFloat(), fields[17].GetFloat(), fields[18].GetFloat());
+    VirtualRealmAddress = GetVirtualRealmAddress();
+    GuildClubMemberID = ::Battlenet::Services::Clubs::CreateClubMemberId(Guid);
+    Name              = fields[1].GetStringView();
+    RaceID            = fields[2].GetUInt8();
+    ClassID           = fields[3].GetUInt8();
+    SexID             = fields[4].GetUInt8();
+    ExperienceLevel   = fields[5].GetUInt8();
+    ZoneID            = int32(fields[6].GetUInt16());
+    MapID             = int32(fields[7].GetUInt16());
+    PreloadPos        = Position(fields[8].GetFloat(), fields[9].GetFloat(), fields[10].GetFloat());
 
-    if (ObjectGuid::LowType guildId = fields[19].GetUInt64())
-        GuildGuid = ObjectGuid::Create<HighGuid::Guild>(guildId);
+    if (ObjectGuid::LowType guildId = fields[11].GetUInt64())
+        GuildGUID = ObjectGuid::Create<HighGuid::Guild>(guildId);
 
-    uint32 playerFlags  = fields[20].GetUInt32();
-    uint32 atLoginFlags = fields[21].GetUInt16();
+    uint32 playerFlags  = fields[12].GetUInt32();
+    uint32 atLoginFlags = fields[13].GetUInt16();
+
+    if (playerFlags & PLAYER_FLAGS_RESTING)
+        Flags |= CHARACTER_FLAG_RESTING;
+
+    if (atLoginFlags & AT_LOGIN_RESET_TALENTS)
+        Flags |= CHARACTER_FLAG_RESET_TALENTS_ON_LOGIN;
 
     if (atLoginFlags & AT_LOGIN_RESURRECT)
         playerFlags &= ~PLAYER_FLAGS_GHOST;
-
-    if (playerFlags & PLAYER_FLAGS_HIDE_HELM)
-        Flags |= CHARACTER_FLAG_HIDE_HELM;
-
-    if (playerFlags & PLAYER_FLAGS_HIDE_CLOAK)
-        Flags |= CHARACTER_FLAG_HIDE_CLOAK;
 
     if (playerFlags & PLAYER_FLAGS_GHOST)
         Flags |= CHARACTER_FLAG_GHOST;
@@ -79,269 +126,528 @@ WorldPackets::Character::EnumCharactersResult::CharacterInfo::CharacterInfo(Fiel
     if (atLoginFlags & AT_LOGIN_RENAME)
         Flags |= CHARACTER_FLAG_RENAME;
 
-    if (fields[26].GetUInt64())
+    if (fields[17].GetUInt64())
         Flags |= CHARACTER_FLAG_LOCKED_BY_BILLING;
 
-    if (sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED) && !fields[30].GetString().empty())
+    if (sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED) && !fields[180].GetStringView().empty())
         Flags |= CHARACTER_FLAG_DECLINED;
 
     if (atLoginFlags & AT_LOGIN_CUSTOMIZE)
-        CustomizationFlag = CHAR_CUSTOMIZE_FLAG_CUSTOMIZE;
+        Flags2 = CHARACTER_FLAG_2_CUSTOMIZE;
     else if (atLoginFlags & AT_LOGIN_CHANGE_FACTION)
-        CustomizationFlag = CHAR_CUSTOMIZE_FLAG_FACTION;
+        Flags2 = CHARACTER_FLAG_2_FACTION_CHANGE;
     else if (atLoginFlags & AT_LOGIN_CHANGE_RACE)
-        CustomizationFlag = CHAR_CUSTOMIZE_FLAG_RACE;
+        Flags2 = CHARACTER_FLAG_2_RACE_CHANGE;
 
-    Flags3 = 0;
-    Flags4 = 0;
+    if (playerFlags & PLAYER_FLAGS_NO_XP_GAIN)
+        Flags2 |= CHARACTER_FLAG_2_NO_XP_GAIN;
+
+    if (playerFlags & PLAYER_FLAGS_LOW_LEVEL_RAID_ENABLED)
+        Flags2 |= CHARACTER_FLAG_2_LOW_LEVEL_RAID_ENABLED;
+
+    if (playerFlags & PLAYER_FLAGS_AUTO_DECLINE_GUILD)
+        Flags2 |= CHARACTER_FLAG_2_AUTO_DECLINE_GUILD;
+
+    if (playerFlags & PLAYER_FLAGS_HIDE_ACCOUNT_ACHIEVEMENTS)
+        Flags3 |= CHARACTER_FLAG_3_HIDE_ACCOUNT_ACHIEVEMENTS;
+
+    if (playerFlags & PLAYER_FLAGS_WAR_MODE_DESIRED)
+        Flags3 |= CHARACTER_FLAG_3_WAR_MODE_DESIRED;
+
     FirstLogin = (atLoginFlags & AT_LOGIN_FIRST) != 0;
 
     // show pet at selection character in character list only for non-ghost character
-    if (!(playerFlags & PLAYER_FLAGS_GHOST) && (Class == CLASS_WARLOCK || Class == CLASS_HUNTER || Class == CLASS_DEATH_KNIGHT))
+    if (!(playerFlags & PLAYER_FLAGS_GHOST) && (ClassID == CLASS_WARLOCK || ClassID == CLASS_HUNTER || ClassID == CLASS_DEATH_KNIGHT))
     {
-        if (CreatureTemplate const* creatureInfo = sObjectMgr->GetCreatureTemplate(fields[22].GetUInt32()))
+        if (CreatureTemplate const* creatureInfo = sObjectMgr->GetCreatureTemplate(fields[14].GetUInt32()))
         {
-            Pet.CreatureDisplayId = fields[23].GetUInt32();
-            Pet.Level = fields[24].GetUInt16();
-            Pet.CreatureFamily = creatureInfo->family;
+            PetCreatureDisplayID = fields[15].GetUInt32();
+            PetExperienceLevel = fields[16].GetUInt16();
+            PetCreatureFamilyID = creatureInfo->family;
         }
     }
 
-    BoostInProgress  = false;
     ProfessionIds[0] = 0;
     ProfessionIds[1] = 0;
 
-    Tokenizer equipment(fields[25].GetString(), ' ');
-    ListPosition = fields[27].GetUInt8();
-    LastPlayedTime = fields[28].GetUInt32();
-    if (ChrSpecializationEntry const* spec = sDB2Manager.GetChrSpecializationByIndex(Class, fields[29].GetUInt8()))
+    ListPosition = fields[18].GetUInt8();
+    CreateTime = fields[19].GetInt64();
+    LastActiveTime = fields[20].GetInt64();
+    if (ChrSpecializationEntry const* spec = sDB2Manager.GetChrSpecializationByIndex(ClassID, fields[21].GetUInt8()))
         SpecID = spec->ID;
 
-    for (uint8 slot = 0; slot < INVENTORY_SLOT_BAG_END; ++slot)
+    LastLoginVersion = fields[22].GetUInt32();
+
+    PersonalTabard.EmblemStyle = fields[23].GetInt32();
+    PersonalTabard.EmblemColor = fields[24].GetInt32();
+    PersonalTabard.BorderStyle = fields[25].GetInt32();
+    PersonalTabard.BorderColor = fields[26].GetInt32();
+    PersonalTabard.BackgroundColor = fields[27].GetInt32();
+
+    for (std::size_t slot = 0; slot < VisualItems.size(); ++slot)
     {
-        uint32 visualBase = slot * 3;
-        VisualItems[slot].InventoryType = Player::GetUInt32ValueFromArray(equipment, visualBase);
-        VisualItems[slot].DisplayId = Player::GetUInt32ValueFromArray(equipment, visualBase + 1);
-        VisualItems[slot].DisplayEnchantId = Player::GetUInt32ValueFromArray(equipment, visualBase + 2);
+        constexpr std::size_t equipmentFieldsPerSlot = 8;
+
+        std::size_t visualBase = 28 + slot * equipmentFieldsPerSlot;
+        VisualItems[slot].ItemID = fields[visualBase + 0].GetUInt32();
+        VisualItems[slot].TransmogrifiedItemID = fields[visualBase + 1].GetUInt32();
+        VisualItems[slot].Subclass = fields[visualBase + 2].GetUInt8();
+        VisualItems[slot].InvType = fields[visualBase + 3].GetUInt8();
+        VisualItems[slot].DisplayID = fields[visualBase + 4].GetUInt32();
+        VisualItems[slot].DisplayEnchantID = fields[visualBase + 5].GetUInt32();
+        VisualItems[slot].SecondaryItemModifiedAppearanceID = fields[visualBase + 6].GetInt32();
+        VisualItems[slot].SheatheCategory = fields[visualBase + 7].GetUInt8();
     }
 }
 
-WorldPacket const* WorldPackets::Character::EnumCharactersResult::Write()
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::CharacterInfoBasic::VisualItemInfo const& visualItem)
 {
-    _worldPacket.reserve(9 + Characters.size() * sizeof(CharacterInfo) + FactionChangeRestrictions.size() * sizeof(RestrictedFactionChangeRuleInfo));
+    data << uint32(visualItem.ItemID);
+    data << uint32(visualItem.TransmogrifiedItemID);
+    data << uint8(visualItem.Subclass);
+    data << uint8(visualItem.InvType);
+    data << uint32(visualItem.DisplayID);
+    data << uint32(visualItem.DisplayEnchantID);
+    data << int32(visualItem.SecondaryItemModifiedAppearanceID);
+    data << uint8(visualItem.SheatheCategory);
 
-    _worldPacket.WriteBit(Success);
-    _worldPacket.WriteBit(IsDeletedCharacters);
-    _worldPacket.WriteBit(IsDemonHunterCreationAllowed);
-    _worldPacket.WriteBit(HasDemonHunterOnRealm);
-    _worldPacket.WriteBit(HasLevel70OnRealm);
-    _worldPacket.WriteBit(Unknown7x);
-    _worldPacket.WriteBit(DisabledClassesMask.is_initialized());
-    _worldPacket << uint32(Characters.size());
-    _worldPacket << uint32(FactionChangeRestrictions.size());
+    return data;
+}
 
-    if (DisabledClassesMask)
-        _worldPacket << uint32(*DisabledClassesMask);
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::CharacterInfoBasic const& charInfo)
+{
+    data << charInfo.Guid;
+    data << uint32(charInfo.VirtualRealmAddress);
+    data << uint16(charInfo.ListPosition);
+    data << uint8(charInfo.RaceID);
+    data << uint8(charInfo.SexID);
+    data << uint8(charInfo.ClassID);
+    data << int16(charInfo.SpecID);
+    data << Size<uint32>(charInfo.Customizations);
+    data << uint8(charInfo.ExperienceLevel);
+    data << int32(charInfo.MapID);
+    data << int32(charInfo.ZoneID);
+    data << charInfo.PreloadPos;
+    data << uint64(charInfo.GuildClubMemberID);
+    data << charInfo.GuildGUID;
+    data << uint32(charInfo.Flags);
+    data << uint32(charInfo.Flags2);
+    data << uint32(charInfo.Flags3);
+    data << uint32(charInfo.Flags4);
+    data << uint8(charInfo.CantLoginReason);
 
-    for (RestrictedFactionChangeRuleInfo const& rule : FactionChangeRestrictions)
-    {
-        _worldPacket << int32(rule.Mask);
-        _worldPacket << uint8(rule.Race);
-    }
+    data << uint32(charInfo.PetCreatureDisplayID);
+    data << uint32(charInfo.PetExperienceLevel);
+    data << uint32(charInfo.PetCreatureFamilyID);
+
+    for (EnumCharactersResult::CharacterInfoBasic::VisualItemInfo const& visualItem : charInfo.VisualItems)
+        data << visualItem;
+
+    data << int32(charInfo.SaveVersion);
+    data << charInfo.CreateTime;
+    data << charInfo.LastActiveTime;
+    data << int32(charInfo.LastLoginVersion);
+    data << charInfo.PersonalTabard;
+
+    data << uint32(charInfo.ProfessionIds[0]);
+    data << uint32(charInfo.ProfessionIds[1]);
+
+    data << int32(charInfo.TimerunningSeasonID);
+    data << uint32(charInfo.OverrideSelectScreenFileDataID);
+    data << uint32(charInfo.RealmQueue);
+
+    for (ChrCustomizationChoice const& customization : charInfo.Customizations)
+        data << customization;
+
+    data << SizedString::BitsSize<6>(charInfo.Name);
+    data << Bits<1>(charInfo.FirstLogin);
+    data << Bits<1>(charInfo.RealmInfoFound);
+    data << Bits<1>(charInfo.IsRealmOffline);
+
+    data.FlushBits();
+
+    data << SizedString::Data(charInfo.Name);
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::CharacterRestrictionAndMailData const& restrictionsAndMails)
+{
+    ASSERT(restrictionsAndMails.MailSenders.size() == restrictionsAndMails.MailSenderTypes.size());
+
+    data << Bits<1>(restrictionsAndMails.BoostInProgress);
+    data << Bits<1>(restrictionsAndMails.RpeAvailable);
+    data.FlushBits();
+
+    data << uint32(restrictionsAndMails.RestrictionFlags);
+    data << Size<uint32>(restrictionsAndMails.MailSenders);
+    data << Size<uint32>(restrictionsAndMails.MailSenderTypes);
+    data << uint32(restrictionsAndMails.NoRpeReason);
+
+    if (!restrictionsAndMails.MailSenderTypes.empty())
+        data.append(restrictionsAndMails.MailSenderTypes.data(), restrictionsAndMails.MailSenderTypes.size());
+
+    for (std::string const& str : restrictionsAndMails.MailSenders)
+        data << SizedCString::BitsSize<6>(str);
+
+    data.FlushBits();
+
+    for (std::string const& str : restrictionsAndMails.MailSenders)
+        data << SizedCString::Data(str);
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::CharacterInfo const& charInfo)
+{
+    data << charInfo.Basic;
+    data << charInfo.RestrictionsAndMails;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::RegionwideCharacterListEntry const& charInfo)
+{
+    data << charInfo.Basic;
+    data << uint64(charInfo.Money);
+    data << float(charInfo.AvgEquippedItemLevel);
+    data << float(charInfo.CurrentSeasonMythicPlusOverallScore);
+    data << int32(charInfo.CurrentSeasonBestPvpRating);
+    data << int8(charInfo.PvpRatingBracket);
+    data << int16(charInfo.PvpRatingAssociatedSpecID);
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::ClassUnlock const& classUnlock)
+{
+    data << int8(classUnlock.ClassID);
+    data << uint32(classUnlock.AchievementID);
+    data << Bits<1>(classUnlock.HasExpansion);
+    data << Bits<1>(classUnlock.HasUnlockedAchievement);
+    data << Bits<1>(classUnlock.HasEntitlement);
+    data.FlushBits();
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::RaceUnlock const& raceUnlock)
+{
+    data << int8(raceUnlock.RaceID);
+    data << Size<uint32>(raceUnlock.ClassUnlocks);
+
+    for (EnumCharactersResult::ClassUnlock const& classUnlock : raceUnlock.ClassUnlocks)
+        data << classUnlock;
+
+    data << Bits<1>(raceUnlock.HasUnlockedLicense);
+    data << Bits<1>(raceUnlock.HasUnlockedAchievement);
+    data << Bits<1>(raceUnlock.HasHeritageArmorUnlockAchievement);
+    data << Bits<1>(raceUnlock.HasEntitlement);
+    data << Bits<1>(raceUnlock.HideRaceOnClient);
+    data << Bits<1>(raceUnlock.FactionBalanceDisabled);
+    data << Bits<1>(raceUnlock.DoesNotHaveAvailableClasses);
+    data.FlushBits();
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::UnlockedConditionalAppearance const& unlockedConditionalAppearance)
+{
+    data << int32(unlockedConditionalAppearance.AchievementID);
+    data << int32(unlockedConditionalAppearance.ConditionalType);
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, EnumCharactersResult::RaceLimitDisableInfo const& raceLimitDisableInfo)
+{
+    data << int8(raceLimitDisableInfo.RaceID);
+    data << int8(raceLimitDisableInfo.Reason);
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, WarbandGroupMember const& warbandGroupMember)
+{
+    data << uint32(warbandGroupMember.WarbandScenePlacementID);
+    data << int32(warbandGroupMember.Type);
+    data << int32(warbandGroupMember.ContentSetID);
+    if (warbandGroupMember.Type == 0)
+        data << warbandGroupMember.Guid;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, WarbandGroup const& warbandGroup)
+{
+    data << uint64(warbandGroup.GroupID);
+    data << uint8(warbandGroup.OrderIndex);
+    data << uint32(warbandGroup.WarbandSceneID);
+    data << uint32(warbandGroup.Flags);
+    data << int32(warbandGroup.ContentSetID);
+    data << Size<uint32>(warbandGroup.Members);
+
+    for (WarbandGroupMember const& member : warbandGroup.Members)
+        data << member;
+
+    data << SizedString::BitsSize<9>(warbandGroup.Name);
+    data.FlushBits();
+
+    data << SizedString::Data(warbandGroup.Name);
+
+    return data;
+}
+
+EnumCharactersResult::CharacterInfo::CharacterInfo(Field const* fields) : Basic(fields)
+{
+}
+
+EnumCharactersResult::RegionwideCharacterListEntry::RegionwideCharacterListEntry(Field const* fields) : Basic(fields)
+{
+}
+
+WorldPacket const* EnumCharactersResult::Write()
+{
+    _worldPacket.reserve(9 + Characters.size() * sizeof(CharacterInfo) + RaceUnlockData.size() * sizeof(RaceUnlock));
+
+    _worldPacket << Bits<1>(Success);
+    _worldPacket << Bits<1>(Realmless);
+    _worldPacket << Bits<1>(IsDeletedCharacters);
+    _worldPacket << Bits<1>(IgnoreNewPlayerRestrictions);
+    _worldPacket << Bits<1>(IsRestrictedNewPlayer);
+    _worldPacket << Bits<1>(IsNewcomerChatCompleted);
+    _worldPacket << Bits<1>(IsRestrictedTrial);
+    _worldPacket << Bits<1>(IsAccountLapsedPlayer);
+    _worldPacket << OptionalInit(ClassDisableMask);
+    _worldPacket << Bits<1>(ForceCharacterListSort);
+    _worldPacket << Size<uint32>(Characters);
+    _worldPacket << Size<uint32>(RegionwideCharacters);
+    _worldPacket << int32(MaxCharacterLevel);
+    _worldPacket << Size<uint32>(RaceUnlockData);
+    _worldPacket << Size<uint32>(UnlockedConditionalAppearances);
+    _worldPacket << Size<uint32>(RaceLimitDisables);
+    _worldPacket << Size<uint32>(WarbandGroups);
+
+    if (ClassDisableMask)
+        _worldPacket << uint32(*ClassDisableMask);
 
     for (CharacterInfo const& charInfo : Characters)
-    {
-        _worldPacket << charInfo.Guid;
-        _worldPacket << uint8(charInfo.ListPosition);
-        _worldPacket << uint8(charInfo.Race);
-        _worldPacket << uint8(charInfo.Class);
-        _worldPacket << uint8(charInfo.Sex);
-        _worldPacket << uint8(charInfo.Skin);
-        _worldPacket << uint8(charInfo.Face);
-        _worldPacket << uint8(charInfo.HairStyle);
-        _worldPacket << uint8(charInfo.HairColor);
-        _worldPacket << uint8(charInfo.FacialHair);
-        _worldPacket.append(charInfo.CustomDisplay.data(), charInfo.CustomDisplay.size());
-        _worldPacket << uint8(charInfo.Level);
-        _worldPacket << int32(charInfo.ZoneId);
-        _worldPacket << int32(charInfo.MapId);
-        _worldPacket << charInfo.PreLoadPosition;
-        _worldPacket << charInfo.GuildGuid;
-        _worldPacket << uint32(charInfo.Flags);
-        _worldPacket << uint32(charInfo.CustomizationFlag);
-        _worldPacket << uint32(charInfo.Flags3);
-        _worldPacket << uint32(charInfo.Pet.CreatureDisplayId);
-        _worldPacket << uint32(charInfo.Pet.Level);
-        _worldPacket << uint32(charInfo.Pet.CreatureFamily);
+        _worldPacket << charInfo;
 
-        _worldPacket << uint32(charInfo.ProfessionIds[0]);
-        _worldPacket << uint32(charInfo.ProfessionIds[1]);
+    for (RegionwideCharacterListEntry const& charInfo : RegionwideCharacters)
+        _worldPacket << charInfo;
 
-        for (CharacterInfo::VisualItemInfo const& visualItem : charInfo.VisualItems)
-        {
-            _worldPacket << uint32(visualItem.DisplayId);
-            _worldPacket << uint32(visualItem.DisplayEnchantId);
-            _worldPacket << uint8(visualItem.InventoryType);
-        }
+    for (RaceUnlock const& raceUnlock : RaceUnlockData)
+        _worldPacket << raceUnlock;
 
-        _worldPacket << uint32(charInfo.LastPlayedTime);
-        _worldPacket << uint16(charInfo.SpecID);
-        _worldPacket << uint32(charInfo.Unknown703);
-        _worldPacket << uint32(charInfo.Flags4);
-        _worldPacket.WriteBits(charInfo.Name.length(), 6);
-        _worldPacket.WriteBit(charInfo.FirstLogin);
-        _worldPacket.WriteBit(charInfo.BoostInProgress);
-        _worldPacket.WriteBits(charInfo.unkWod61x, 5);
-        _worldPacket.FlushBits();
+    for (UnlockedConditionalAppearance const& unlockedConditionalAppearance : UnlockedConditionalAppearances)
+        _worldPacket << unlockedConditionalAppearance;
 
-        _worldPacket.WriteString(charInfo.Name);
-    }
+    for (RaceLimitDisableInfo const& raceLimitDisableInfo : RaceLimitDisables)
+        _worldPacket << raceLimitDisableInfo;
+
+    for (WarbandGroup const& warbandGroup : WarbandGroups)
+        _worldPacket << warbandGroup;
 
     return &_worldPacket;
 }
 
-void WorldPackets::Character::CreateCharacter::Read()
+void CheckCharacterNameAvailability::Read()
 {
-    CreateInfo.reset(new CharacterCreateInfo());
-    uint32 nameLength = _worldPacket.ReadBits(6);
-    bool const hasTemplateSet = _worldPacket.ReadBit();
+    _worldPacket >> SequenceIndex;
+    _worldPacket >> SizedString::BitsSize<6>(Name);
 
+    _worldPacket >> SizedString::Data(Name);
+}
+
+WorldPacket const* CheckCharacterNameAvailabilityResult::Write()
+{
+    _worldPacket << uint32(SequenceIndex);
+    _worldPacket << uint32(Result);
+
+    return &_worldPacket;
+}
+
+void CreateCharacter::Read()
+{
+    CreateInfo = std::make_shared<CharacterCreateInfo>();
+
+    _worldPacket >> SizedString::BitsSize<6>(CreateInfo->Name);
+    _worldPacket >> OptionalInit(CreateInfo->TemplateSet);
+    _worldPacket >> Bits<1>(CreateInfo->IsTrialBoost);
+    _worldPacket >> Bits<1>(CreateInfo->UseNPE);
+    _worldPacket >> Bits<1>(CreateInfo->HardcoreSelfFound);
     _worldPacket >> CreateInfo->Race;
     _worldPacket >> CreateInfo->Class;
     _worldPacket >> CreateInfo->Sex;
-    _worldPacket >> CreateInfo->Skin;
-    _worldPacket >> CreateInfo->Face;
-    _worldPacket >> CreateInfo->HairStyle;
-    _worldPacket >> CreateInfo->HairColor;
-    _worldPacket >> CreateInfo->FacialHairStyle;
-    _worldPacket >> CreateInfo->OutfitId;
-    _worldPacket.read(CreateInfo->CustomDisplay.data(), CreateInfo->CustomDisplay.size());
-    CreateInfo->Name = _worldPacket.ReadString(nameLength);
-    if (hasTemplateSet)
-        CreateInfo->TemplateSet = _worldPacket.read<int32>();
+    _worldPacket >> Size<uint32>(CreateInfo->Customizations);
+    _worldPacket >> CreateInfo->TimerunningSeasonID;
+    _worldPacket >> SizedString::Data(CreateInfo->Name);
+    if (CreateInfo->TemplateSet)
+        _worldPacket >> *CreateInfo->TemplateSet;
+
+    for (ChrCustomizationChoice& customization : CreateInfo->Customizations)
+        _worldPacket >> customization;
+
+    SortCustomizations(CreateInfo->Customizations);
 }
 
-WorldPacket const* WorldPackets::Character::CreateChar::Write()
+WorldPacket const* CreateChar::Write()
 {
-    _worldPacket << uint8(Code);
+    _worldPacket << uint32(Code);
+    _worldPacket << Guid;
+
     return &_worldPacket;
 }
 
-void WorldPackets::Character::CharDelete::Read()
+void CharDelete::Read()
 {
     _worldPacket >> Guid;
 }
 
-WorldPacket const* WorldPackets::Character::DeleteChar::Write()
+WorldPacket const* DeleteChar::Write()
 {
-    _worldPacket << uint8(Code);
+    _worldPacket << uint32(Code);
+
     return &_worldPacket;
 }
 
-void WorldPackets::Character::CharacterRenameRequest::Read()
+void CharacterRenameRequest::Read()
 {
-    RenameInfo.reset(new CharacterRenameInfo());
+    RenameInfo = std::make_shared<CharacterRenameInfo>();
+
     _worldPacket >> RenameInfo->Guid;
-    RenameInfo->NewName = _worldPacket.ReadString(_worldPacket.ReadBits(6));
+    _worldPacket >> SizedString::BitsSize<6>(RenameInfo->NewName);
+
+    _worldPacket >> SizedString::Data(RenameInfo->NewName);
 }
 
-WorldPacket const* WorldPackets::Character::CharacterRenameResult::Write()
+WorldPacket const* CharacterRenameResult::Write()
 {
-    _worldPacket << uint8(Result);
-    _worldPacket.WriteBit(Guid.is_initialized());
-    _worldPacket.WriteBits(Name.length(), 6);
+    _worldPacket << uint32(Result);
+    _worldPacket << OptionalInit(Guid);
+    _worldPacket << SizedString::BitsSize<6>(Name);
     _worldPacket.FlushBits();
 
     if (Guid)
         _worldPacket << *Guid;
 
-    _worldPacket.WriteString(Name);
+    _worldPacket << SizedString::Data(Name);
 
     return &_worldPacket;
 }
 
-void WorldPackets::Character::CharCustomize::Read()
+void CharCustomize::Read()
 {
-    CustomizeInfo.reset(new CharCustomizeInfo());
+    CustomizeInfo = std::make_shared<CharCustomizeInfo>();
+
     _worldPacket >> CustomizeInfo->CharGUID;
     _worldPacket >> CustomizeInfo->SexID;
-    _worldPacket >> CustomizeInfo->SkinID;
-    _worldPacket >> CustomizeInfo->HairColorID;
-    _worldPacket >> CustomizeInfo->HairStyleID;
-    _worldPacket >> CustomizeInfo->FacialHairStyleID;
-    _worldPacket >> CustomizeInfo->FaceID;
-    _worldPacket.read(CustomizeInfo->CustomDisplay.data(), CustomizeInfo->CustomDisplay.size());
-    CustomizeInfo->CharName = _worldPacket.ReadString(_worldPacket.ReadBits(6));
+    _worldPacket >> Size<uint32>(CustomizeInfo->Customizations);
+    for (ChrCustomizationChoice& customization : CustomizeInfo->Customizations)
+        _worldPacket >> customization;
+
+    _worldPacket >> SizedString::BitsSize<6>(CustomizeInfo->CharName);
+    _worldPacket >> SizedString::Data(CustomizeInfo->CharName);
+
+    SortCustomizations(CustomizeInfo->Customizations);
 }
 
-void WorldPackets::Character::CharRaceOrFactionChange::Read()
+CharCustomizeSuccess::CharCustomizeSuccess(CharCustomizeInfo const* info)
+    : ServerPacket(SMSG_CHAR_CUSTOMIZE_SUCCESS, 16 + 1 + 1 + 1 + 1 + 1 + 1 + 1), Customizations(info->Customizations)
 {
-    RaceOrFactionChangeInfo.reset(new CharRaceOrFactionChangeInfo());
+    CharGUID = info->CharGUID;
+    SexID = info->SexID;
+    CharName = info->CharName;
+}
 
-    RaceOrFactionChangeInfo->FactionChange = _worldPacket.ReadBit();
+WorldPacket const* CharCustomizeSuccess::Write()
+{
+    _worldPacket << CharGUID;
+    _worldPacket << uint8(SexID);
+    _worldPacket << Size<uint32>(Customizations);
+    for (ChrCustomizationChoice customization : Customizations)
+        _worldPacket << customization;
 
-    uint32 nameLength = _worldPacket.ReadBits(6);
+    _worldPacket << SizedString::BitsSize<6>(CharName);
+    _worldPacket.FlushBits();
 
+    _worldPacket << SizedString::Data(CharName);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* CharCustomizeFailure::Write()
+{
+    _worldPacket << uint32(Result);
+    _worldPacket << CharGUID;
+
+    return &_worldPacket;
+}
+
+void CharRaceOrFactionChange::Read()
+{
+    RaceOrFactionChangeInfo = std::make_shared<CharRaceOrFactionChangeInfo>();
+
+    _worldPacket >> Bits<1>(RaceOrFactionChangeInfo->FactionChange);
+    _worldPacket >> SizedString::BitsSize<6>(RaceOrFactionChangeInfo->Name);
     _worldPacket >> RaceOrFactionChangeInfo->Guid;
     _worldPacket >> RaceOrFactionChangeInfo->SexID;
     _worldPacket >> RaceOrFactionChangeInfo->RaceID;
-    _worldPacket >> RaceOrFactionChangeInfo->SkinID;
-    _worldPacket >> RaceOrFactionChangeInfo->HairColorID;
-    _worldPacket >> RaceOrFactionChangeInfo->HairStyleID;
-    _worldPacket >> RaceOrFactionChangeInfo->FacialHairStyleID;
-    _worldPacket >> RaceOrFactionChangeInfo->FaceID;
-    _worldPacket.read(RaceOrFactionChangeInfo->CustomDisplay.data(), RaceOrFactionChangeInfo->CustomDisplay.size());
-    RaceOrFactionChangeInfo->Name = _worldPacket.ReadString(nameLength);
+    _worldPacket >> RaceOrFactionChangeInfo->InitialRaceID;
+    _worldPacket >> Size<uint32>(RaceOrFactionChangeInfo->Customizations);
+    _worldPacket >> SizedString::Data(RaceOrFactionChangeInfo->Name);
+    for (ChrCustomizationChoice& customization : RaceOrFactionChangeInfo->Customizations)
+        _worldPacket >> customization;
+
+    SortCustomizations(RaceOrFactionChangeInfo->Customizations);
 }
 
-WorldPacket const* WorldPackets::Character::CharFactionChangeResult::Write()
+WorldPacket const* CharFactionChangeResult::Write()
 {
-    _worldPacket << uint8(Result);
+    _worldPacket << uint32(Result);
     _worldPacket << Guid;
-    _worldPacket.WriteBit(Display.is_initialized());
+    _worldPacket << OptionalInit(Display);
     _worldPacket.FlushBits();
 
     if (Display)
     {
-        _worldPacket.WriteBits(Display->Name.length(), 6);
+        _worldPacket << SizedString::BitsSize<6>(Display->Name);
         _worldPacket << uint8(Display->SexID);
-        _worldPacket << uint8(Display->SkinID);
-        _worldPacket << uint8(Display->HairColorID);
-        _worldPacket << uint8(Display->HairStyleID);
-        _worldPacket << uint8(Display->FacialHairStyleID);
-        _worldPacket << uint8(Display->FaceID);
         _worldPacket << uint8(Display->RaceID);
-        _worldPacket.append(Display->CustomDisplay.data(), Display->CustomDisplay.size());
-        _worldPacket.WriteString(Display->Name);
+        _worldPacket << Size<uint32>(*Display->Customizations);
+        _worldPacket << SizedString::Data(Display->Name);
+        for (ChrCustomizationChoice customization : *Display->Customizations)
+            _worldPacket << customization;
     }
 
     return &_worldPacket;
 }
 
-void WorldPackets::Character::GenerateRandomCharacterName::Read()
+void GenerateRandomCharacterName::Read()
 {
     _worldPacket >> Race;
     _worldPacket >> Sex;
 }
 
-WorldPacket const* WorldPackets::Character::GenerateRandomCharacterNameResult::Write()
+WorldPacket const* GenerateRandomCharacterNameResult::Write()
 {
-    _worldPacket.WriteBit(Success);
-    _worldPacket.WriteBits(Name.length(), 6);
+    _worldPacket << Bits<1>(Success);
+    _worldPacket << SizedString::BitsSize<6>(Name);
     _worldPacket.FlushBits();
 
-    _worldPacket.WriteString(Name);
+    _worldPacket << SizedString::Data(Name);
 
     return &_worldPacket;
 }
 
-WorldPackets::Character::ReorderCharacters::ReorderCharacters(WorldPacket&& packet) : ClientPacket(CMSG_REORDER_CHARACTERS, std::move(packet))
+ReorderCharacters::ReorderCharacters(WorldPacket&& packet) : ClientPacket(CMSG_REORDER_CHARACTERS, std::move(packet))
 {
 }
 
-void WorldPackets::Character::ReorderCharacters::Read()
+void ReorderCharacters::Read()
 {
-    Entries.resize(_worldPacket.ReadBits(9));
+    _worldPacket >> BitsSize<9>(Entries);
     for (ReorderInfo& reorderInfo : Entries)
     {
         _worldPacket >> reorderInfo.PlayerGUID;
@@ -349,70 +655,120 @@ void WorldPackets::Character::ReorderCharacters::Read()
     }
 }
 
-void WorldPackets::Character::UndeleteCharacter::Read()
+void UndeleteCharacter::Read()
 {
-    UndeleteInfo.reset(new CharacterUndeleteInfo());
+    UndeleteInfo = std::make_shared<CharacterUndeleteInfo>();
+
     _worldPacket >> UndeleteInfo->ClientToken;
     _worldPacket >> UndeleteInfo->CharacterGuid;
 }
 
-WorldPacket const* WorldPackets::Character::UndeleteCharacterResponse::Write()
+WorldPacket const* UndeleteCharacterResponse::Write()
 {
     ASSERT(UndeleteInfo);
+
     _worldPacket << int32(UndeleteInfo->ClientToken);
     _worldPacket << uint32(Result);
     _worldPacket << UndeleteInfo->CharacterGuid;
+
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Character::UndeleteCooldownStatusResponse::Write()
+WorldPacket const* UndeleteCooldownStatusResponse::Write()
 {
-    _worldPacket.WriteBit(OnCooldown);
     _worldPacket << uint32(MaxCooldown);
     _worldPacket << uint32(CurrentCooldown);
+    _worldPacket << Bits<1>(OnCooldown);
+    _worldPacket.FlushBits();
+
     return &_worldPacket;
 }
 
-void WorldPackets::Character::PlayerLogin::Read()
+void PlayerLogin::Read()
 {
     _worldPacket >> Guid;
     _worldPacket >> FarClip;
+    _worldPacket >> Bits<1>(RPE);
 }
 
-WorldPacket const* WorldPackets::Character::LoginVerifyWorld::Write()
+WorldPacket const* LoginVerifyWorld::Write()
 {
     _worldPacket << int32(MapID);
     _worldPacket << Pos;
     _worldPacket << uint32(Reason);
+
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Character::CharacterLoginFailed::Write()
+WorldPacket const* CharacterLoginFailed::Write()
 {
     _worldPacket << uint8(Code);
+
     return &_worldPacket;
 }
 
-void WorldPackets::Character::LogoutRequest::Read()
+void LogoutRequest::Read()
 {
-    IdleLogout = _worldPacket.ReadBit();
+    _worldPacket >> Bits<1>(IdleLogout);
 }
 
-WorldPacket const* WorldPackets::Character::LogoutResponse::Write()
+WorldPacket const* LogoutResponse::Write()
 {
     _worldPacket << int32(LogoutResult);
-    _worldPacket.WriteBit(Instant);
+    _worldPacket << Bits<1>(Instant);
     _worldPacket.FlushBits();
+
     return &_worldPacket;
 }
 
-void WorldPackets::Character::LoadingScreenNotify::Read()
+ByteBuffer& operator<<(ByteBuffer& data, GameModeData const& gameModeData)
 {
-    _worldPacket >> MapID;
-    Showing = _worldPacket.ReadBit();
+    data << int32(gameModeData.Unknown_1107_0);
+    data << gameModeData.Guid;
+    data << uint8(gameModeData.GameMode);
+    data << int32(gameModeData.MapID);
+    data << uint8(gameModeData.Unknown_1107_1);
+    data << uint8(gameModeData.Unknown_1107_2);
+    data << uint8(gameModeData.Unknown_1107_3);
+    data << Size<uint32>(gameModeData.Customizations);
+    data << Size<uint32>(gameModeData.Unknown_1107_4);
+
+    for (ChrCustomizationChoice const& customization : gameModeData.Customizations)
+        data << customization;
+
+    for (ChrCustomizationChoice const& customization : gameModeData.Unknown_1107_4)
+        data << customization;
+
+    return data;
 }
 
-WorldPacket const* WorldPackets::Character::InitialSetup::Write()
+ByteBuffer& operator<<(ByteBuffer& data, SwitchGameModeData const& switchGameModeData)
+{
+    data << Bits<1>(switchGameModeData.IsFastLogin);
+    data << switchGameModeData.Current;
+    data << switchGameModeData.New;
+
+    return data;
+}
+
+WorldPacket const* LogoutComplete::Write()
+{
+    _worldPacket << OptionalInit(SwitchGameMode);
+    _worldPacket.FlushBits();
+
+    if (SwitchGameMode)
+        _worldPacket << *SwitchGameMode;
+
+    return &_worldPacket;
+}
+
+void LoadingScreenNotify::Read()
+{
+    _worldPacket >> MapID;
+    _worldPacket >> Bits<1>(Showing);
+}
+
+WorldPacket const* InitialSetup::Write()
 {
     _worldPacket << uint8(ServerExpansionLevel);
     _worldPacket << uint8(ServerExpansionTier);
@@ -420,152 +776,126 @@ WorldPacket const* WorldPackets::Character::InitialSetup::Write()
     return &_worldPacket;
 }
 
-void WorldPackets::Character::SetActionBarToggles::Read()
+void SetActionBarToggles::Read()
 {
     _worldPacket >> Mask;
 }
 
-void WorldPackets::Character::RequestPlayedTime::Read()
+void RequestPlayedTime::Read()
 {
-    TriggerScriptEvent = _worldPacket.ReadBit();
+    _worldPacket >> Bits<1>(TriggerScriptEvent);
 }
 
-WorldPacket const* WorldPackets::Character::PlayedTime::Write()
+WorldPacket const* PlayedTime::Write()
 {
     _worldPacket << int32(TotalTime);
     _worldPacket << int32(LevelTime);
-    _worldPacket.WriteBit(TriggerEvent);
+    _worldPacket << Bits<1>(TriggerEvent);
     _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-void WorldPackets::Character::SetTitle::Read()
+void SetTitle::Read()
 {
     _worldPacket >> TitleID;
 }
 
-void WorldPackets::Character::AlterApperance::Read()
+void AlterApperance::Read()
 {
-    _worldPacket >> NewHairStyle;
-    _worldPacket >> NewHairColor;
-    _worldPacket >> NewFacialHair;
-    _worldPacket >> NewSkinColor;
-    _worldPacket >> NewFace;
-    for (std::size_t i = 0; i < NewCustomDisplay.size(); ++i)
-        _worldPacket >> NewCustomDisplay[i];
+    _worldPacket >> Size<uint32>(Customizations);
+    _worldPacket >> NewSex;
+    _worldPacket >> CustomizedRace;
+    _worldPacket >> CustomizedChrModelID;
+    _worldPacket >> UnalteredVisualRaceID;
+    for (ChrCustomizationChoice& customization : Customizations)
+        _worldPacket >> customization;
+
+    SortCustomizations(Customizations);
 }
 
-WorldPacket const* WorldPackets::Character::BarberShopResult::Write()
+WorldPacket const* BarberShopResult::Write()
 {
     _worldPacket << int32(Result);
+
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Character::LogXPGain::Write()
+WorldPacket const* LogXPGain::Write()
 {
     _worldPacket << Victim;
     _worldPacket << int32(Original);
     _worldPacket << uint8(Reason);
     _worldPacket << int32(Amount);
     _worldPacket << float(GroupBonus);
-    _worldPacket.WriteBit(ReferAFriend);
-
-    _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Character::TitleEarned::Write()
+WorldPacket const* TitleEarned::Write()
 {
     _worldPacket << uint32(Index);
 
     return &_worldPacket;
 }
 
-void WorldPackets::Character::SetFactionAtWar::Read()
+void SetFactionAtWar::Read()
 {
     _worldPacket >> FactionIndex;
 }
 
-void WorldPackets::Character::SetFactionNotAtWar::Read()
+void SetFactionNotAtWar::Read()
 {
     _worldPacket >> FactionIndex;
 }
 
-void WorldPackets::Character::SetFactionInactive::Read()
+void SetFactionInactive::Read()
 {
     _worldPacket >> Index;
-    State = _worldPacket.ReadBit();
+    _worldPacket >> Bits<1>(State);
 }
 
-void WorldPackets::Character::SetWatchedFaction::Read()
+void SetWatchedFaction::Read()
 {
     _worldPacket >> FactionIndex;
 }
 
-WorldPacket const* WorldPackets::Character::SetFactionVisible::Write()
+WorldPacket const* SetFactionVisible::Write()
 {
     _worldPacket << FactionIndex;
-    return &_worldPacket;
-}
-
-WorldPackets::Character::CharCustomizeResponse::CharCustomizeResponse(WorldPackets::Character::CharCustomizeInfo const* info)
-    : ServerPacket(SMSG_CHAR_CUSTOMIZE, 16 + 1 + 1 + 1 + 1 + 1 + 1 + 1)
-{
-    CharGUID = info->CharGUID;
-    SexID = info->SexID;
-    SkinID = info->SkinID;
-    HairColorID = info->HairColorID;
-    HairStyleID = info->HairStyleID;
-    FacialHairStyleID = info->FacialHairStyleID;
-    FaceID = info->FaceID;
-    CharName = info->CharName;
-    CustomDisplay = info->CustomDisplay;
-}
-
-WorldPacket const* WorldPackets::Character::CharCustomizeResponse::Write()
-{
-    _worldPacket << CharGUID;
-    _worldPacket << uint8(SexID);
-    _worldPacket << uint8(SkinID);
-    _worldPacket << uint8(HairColorID);
-    _worldPacket << uint8(HairStyleID);
-    _worldPacket << uint8(FacialHairStyleID);
-    _worldPacket << uint8(FaceID);
-    _worldPacket.append(CustomDisplay.data(), CustomDisplay.size());
-    _worldPacket.WriteBits(CharName.length(), 6);
-    _worldPacket.FlushBits();
-    _worldPacket.WriteString(CharName);
 
     return &_worldPacket;
 }
 
-WorldPacket const* WorldPackets::Character::CharCustomizeFailed::Write()
-{
-    _worldPacket << uint8(Result);
-    _worldPacket << CharGUID;
-
-    return &_worldPacket;
-}
-
-void WorldPackets::Character::SetPlayerDeclinedNames::Read()
+void SetPlayerDeclinedNames::Read()
 {
     _worldPacket >> Player;
 
-    uint8 stringLengths[MAX_DECLINED_NAME_CASES];
+    for (uint8 i = 0; i < MAX_DECLINED_NAME_CASES; ++i)
+        _worldPacket >> SizedString::BitsSize<7>(DeclinedNames.name[i]);
 
     for (uint8 i = 0; i < MAX_DECLINED_NAME_CASES; ++i)
-        stringLengths[i] = _worldPacket.ReadBits(7);
-
-    for (uint8 i = 0; i < MAX_DECLINED_NAME_CASES; ++i)
-        DeclinedNames.name[i] = _worldPacket.ReadString(stringLengths[i]);
+        _worldPacket >> SizedString::Data(DeclinedNames.name[i]);
 }
 
-WorldPacket const * WorldPackets::Character::SetPlayerDeclinedNamesResult::Write()
+WorldPacket const * SetPlayerDeclinedNamesResult::Write()
 {
     _worldPacket << int32(ResultCode);
     _worldPacket << Player;
 
     return &_worldPacket;
+}
+
+void SavePersonalEmblem::Read()
+{
+    _worldPacket >> Vendor;
+    _worldPacket >> PersonalTabard;
+}
+
+WorldPacket const* PlayerSavePersonalEmblem::Write()
+{
+    _worldPacket << int32(Error);
+
+    return &_worldPacket;
+}
 }

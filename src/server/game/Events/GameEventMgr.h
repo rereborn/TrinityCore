@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,6 +22,7 @@
 #include "SharedDefines.h"
 #include "Define.h"
 #include "ObjectGuid.h"
+#include "Optional.h"
 #include <list>
 #include <map>
 #include <set>
@@ -60,7 +60,7 @@ typedef std::map<uint32 /*condition id*/, GameEventFinishCondition> GameEventCon
 
 struct GameEventData
 {
-    GameEventData() : start(1), end(0), nextstart(0), occurence(0), length(0), holiday_id(HOLIDAY_NONE), state(GAMEEVENT_NORMAL),
+    GameEventData() : start(1), end(0), nextstart(0), occurence(0), length(0), holiday_id(HOLIDAY_NONE), holidayStage(0), state(GAMEEVENT_NORMAL),
                       announce(0) { }
     time_t start;           // occurs after this time
     time_t end;             // occurs before this time
@@ -68,6 +68,8 @@ struct GameEventData
     uint32 occurence;       // time between end and start
     uint32 length;          // length of the event (minutes) after finishing all conditions
     HolidayIds holiday_id;
+    uint8 holidayStage;
+    Optional<int32> WorldStateId;
     GameEventState state;   // state of the game event, these are saved into the game_event table on change!
     GameEventConditionMap conditions;  // conditions to finish
     std::set<uint16 /*gameevent id*/> prerequisite_events;  // events that must be completed before starting this event
@@ -97,6 +99,11 @@ class TC_GAME_API GameEventMgr
         ~GameEventMgr();
 
     public:
+        GameEventMgr(GameEventMgr const&) = delete;
+        GameEventMgr(GameEventMgr&&) = delete;
+        GameEventMgr& operator=(GameEventMgr const&) = delete;
+        GameEventMgr& operator=(GameEventMgr&&) = delete;
+
         static GameEventMgr* instance();
 
         typedef std::set<uint16> ActiveEvents;
@@ -107,7 +114,7 @@ class TC_GAME_API GameEventMgr
         uint32 NextCheck(uint16 entry) const;
         void LoadFromDB();
         uint32 Update();
-        bool IsActiveEvent(uint16 event_id) { return (m_ActiveEvents.find(event_id) != m_ActiveEvents.end()); }
+        bool IsActiveEvent(uint16 event_id) const { return (m_ActiveEvents.contains(event_id)); }
         uint32 StartSystem();
         void Initialize();
         void StartArenaSeason();
@@ -115,14 +122,12 @@ class TC_GAME_API GameEventMgr
         bool StartEvent(uint16 event_id, bool overwrite = false);
         void StopEvent(uint16 event_id, bool overwrite = false);
         void HandleQuestComplete(uint32 quest_id);  // called on world event type quest completions
-        void HandleWorldEventGossip(Player* player, Creature* c);
         uint64 GetNPCFlag(Creature* cr);
-        uint32 GetNpcTextId(uint32 guid);
-        uint16 GetEventIdForQuest(Quest const* quest) const;
+
     private:
         void SendWorldStateUpdate(Player* player, uint16 event_id);
-        void AddActiveEvent(uint16 event_id) { m_ActiveEvents.insert(event_id); }
-        void RemoveActiveEvent(uint16 event_id) { m_ActiveEvents.erase(event_id); }
+        void AddActiveEvent(uint16 event_id);
+        void RemoveActiveEvent(uint16 event_id);
         void ApplyNewEvent(uint16 event_id);
         void UnApplyEvent(uint16 event_id);
         void GameEventSpawn(int16 event_id);
@@ -132,14 +137,15 @@ class TC_GAME_API GameEventMgr
         void UpdateWorldStates(uint16 event_id, bool Activate);
         void UpdateEventNPCFlags(uint16 event_id);
         void UpdateEventNPCVendor(uint16 event_id, bool activate);
-        void UpdateBattlegroundSettings();
-        void RunSmartAIScripts(uint16 event_id, bool activate);    //! Runs SMART_EVENT_GAME_EVENT_START/_END SAI
+        void RunSmartAIScripts(uint16 event_id, bool activate);    //!< Runs SMART_EVENT_GAME_EVENT_START/_END SAI
         bool CheckOneGameEventConditions(uint16 event_id);
         void SaveWorldEventStateToDB(uint16 event_id);
         bool hasCreatureQuestActiveEventExcept(uint32 quest_id, uint16 event_id);
         bool hasGameObjectQuestActiveEventExcept(uint32 quest_id, uint16 event_id);
         bool hasCreatureActiveEventExcept(ObjectGuid::LowType creature_guid, uint16 event_id);
         bool hasGameObjectActiveEventExcept(ObjectGuid::LowType go_guid, uint16 event_id);
+        void SetHolidayEventTime(GameEventData& event);
+        time_t GetLastStartTime(uint16 event_id) const;
 
         typedef std::list<ObjectGuid::LowType> GuidList;
         typedef std::list<uint32> IdList;
@@ -157,7 +163,6 @@ class TC_GAME_API GameEventMgr
         typedef std::pair<ObjectGuid::LowType /*guid*/, uint64 /*npcflag*/> GuidNPCFlagPair;
         typedef std::list<GuidNPCFlagPair> NPCFlagList;
         typedef std::vector<NPCFlagList> GameEventNPCFlagMap;
-        typedef std::vector<uint32> GameEventBitmask;
         GameEventQuestMap mGameEventCreatureQuests;
         GameEventQuestMap mGameEventGameObjectQuests;
         GameEventNPCVendorMap mGameEventVendors;
@@ -166,12 +171,11 @@ class TC_GAME_API GameEventMgr
         //GameEventGuidMap  mGameEventGameobjectGuids;
         GameEventIdMap    mGameEventPoolIds;
         GameEventDataMap  mGameEvent;
-        GameEventBitmask  mGameEventBattlegroundHolidays;
         QuestIdToEventConditionMap mQuestToEventConditions;
         GameEventNPCFlagMap mGameEventNPCFlags;
         ActiveEvents m_ActiveEvents;
-        std::unordered_map<uint32, uint16> _questToEventLinks;
         bool isSystemInit;
+
     public:
         GameEventGuidMap  mGameEventCreatureGuids;
         GameEventGuidMap  mGameEventGameobjectGuids;
@@ -180,6 +184,6 @@ class TC_GAME_API GameEventMgr
 #define sGameEventMgr GameEventMgr::instance()
 
 TC_GAME_API bool IsHolidayActive(HolidayIds id);
-TC_GAME_API bool IsEventActive(uint16 event_id);
+TC_GAME_API bool IsEventActive(uint16 eventId);
 
 #endif
